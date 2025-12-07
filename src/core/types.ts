@@ -7,6 +7,7 @@ import { IncomingMessage, ServerResponse } from 'http';
 import { ZodSchema } from 'zod';
 import { Application } from './application';
 import { ContextStore, StoreConstructor, StoreRegistry, RequestStore, RequestStoreConstructor } from './store';
+import { JSONSchema, ResponseSchemaConfig, SerializerFunction } from './serializer';
 
 /**
  * HTTP methods supported by the framework
@@ -105,6 +106,16 @@ export interface Context {
     /** Get a value from request-scoped storage */
     get<T = any>(key: string): T | undefined;
 
+    // Body methods (for sync access after pre-parsing)
+    /** Check if body is ready for sync access (no await needed) */
+    isBodyReady: boolean;
+    
+    /** Wait for body to be parsed (internal use, rarely needed by user) */
+    waitForBody(): Promise<any>;
+    
+    /** Async body getter - use for POST/PUT/PATCH if body might not be ready */
+    getBody<T = any>(): Promise<T>;
+
     // Utility methods
     json<T>(data: T, status?: number): Response;
     html(content: string, status?: number): Response;
@@ -157,11 +168,12 @@ export type Middleware<TIn = Context, TOut = Context, TDeps = any> = (
 /**
  * Route handler function signature
  * Handlers can return data directly or a Response object
+ * Supports both sync and async handlers
  */
 export type Handler<TContext = Context, TDeps = any> = (
     ctx: TContext,
     deps: TDeps
-) => Promise<Response | any>;
+) => Response | any | Promise<Response | any>;
 
 /**
  * Dependency container type
@@ -221,6 +233,32 @@ export interface SchemaConfig {
     query?: ZodSchema;
     body?: ZodSchema;
     headers?: ZodSchema;
+    /** 
+     * Response schema for fast JSON serialization 
+     * When provided, uses fast-json-stringify for 2-3x faster serialization
+     * 
+     * @example
+     * ```typescript
+     * app.get('/users', {
+     *   schema: {
+     *     response: {
+     *       200: {
+     *         type: 'array',
+     *         items: {
+     *           type: 'object',
+     *           properties: {
+     *             id: { type: 'number' },
+     *             name: { type: 'string' }
+     *           }
+     *         }
+     *       }
+     *     }
+     *   },
+     *   handler: async (ctx) => users
+     * });
+     * ```
+     */
+    response?: ResponseSchemaConfig;
     onValidationError?: ValidationErrorHandler;
 }
 
@@ -246,6 +284,8 @@ export interface RouteConfig<TContext = Context> {
     middlewares?: Middleware<any, any>[];
     schema?: SchemaConfig;
     meta?: RouteMeta;
+    /** Pre-compiled serializer function (internal use) */
+    _serializer?: Map<number | string, SerializerFunction>;
 }
 
 /**
@@ -256,6 +296,8 @@ export interface RouteMatch {
     params: Record<string, string>;
     middlewares: Middleware[];
     schema?: SchemaConfig;
+    /** Pre-compiled serializer for response (internal use) */
+    _serializer?: Map<number | string, SerializerFunction>;
 }
 
 /**

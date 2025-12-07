@@ -4,7 +4,7 @@
  */
 
 import { IncomingMessage, ServerResponse } from 'http';
-import { parse as parseQueryString } from 'querystring';
+import { parse as fastQueryParse } from 'fast-querystring';
 import {
     Context,
     Headers,
@@ -15,6 +15,7 @@ import {
     HTTPMethod
 } from './types';
 import { ContextStore, StoreConstructor, StoreRegistry, RequestStore, RequestStoreConstructor, RequestStoreRegistry } from './store';
+import { SerializerFunction } from './serializer';
 
 /**
  * Cookie manager implementation
@@ -85,11 +86,13 @@ const CACHED_HEADERS = {
 
 /**
  * Response builder implementation
+ * Supports fast-json-stringify for optimized JSON serialization
  */
 class ResponseBuilderImpl implements ResponseBuilder {
     private _status: number = 200;
     private _headers: Headers = {};
     private _hasCustomHeaders: boolean = false;
+    private _serializers: Map<number | string, SerializerFunction> | null = null;
 
     status(code: number): ResponseBuilder {
         this._status = code;
@@ -102,13 +105,44 @@ class ResponseBuilderImpl implements ResponseBuilder {
         return this;
     }
 
+    /**
+     * Set serializers for this response builder (called by router)
+     * @internal
+     */
+    setSerializers(serializers: Map<number | string, SerializerFunction>): void {
+        this._serializers = serializers;
+    }
+
+    /**
+     * Get the appropriate serializer for current status code
+     */
+    private getSerializer(): SerializerFunction | null {
+        if (!this._serializers) return null;
+        
+        // Try exact match first
+        const exactMatch = this._serializers.get(this._status);
+        if (exactMatch) return exactMatch;
+
+        // Try status code ranges (2xx, 4xx, 5xx)
+        const range = `${Math.floor(this._status / 100)}xx`;
+        const rangeMatch = this._serializers.get(range);
+        if (rangeMatch) return rangeMatch;
+
+        // Try default
+        return this._serializers.get('default') || null;
+    }
+
     json<T>(data: T): Response {
+        // Try to use fast serializer first
+        const serializer = this.getSerializer();
+        const body = serializer ? serializer(data) : JSON.stringify(data);
+        
         return {
             statusCode: this._status,
             headers: this._hasCustomHeaders 
                 ? { ...this._headers, 'Content-Type': 'application/json' }
                 : CACHED_HEADERS.JSON,
-            body: JSON.stringify(data)
+            body
         };
     }
 
@@ -158,6 +192,7 @@ class ResponseBuilderImpl implements ResponseBuilder {
         this._status = 200;
         this._headers = {};
         this._hasCustomHeaders = false;
+        this._serializers = null;
     }
 }
 
@@ -272,11 +307,13 @@ export class ContextImpl implements Context {
     /**
      * Lazy query getter - only parse query string when accessed
      * Most simple endpoints like /json don't need query parsing
+     * Inline fast-querystring for minimal overhead
      */
     get query(): Record<string, any> {
         if (this._query === null) {
+            // Inline fast-querystring call directly - no method call overhead
             this._query = this._queryString 
-                ? this.parseQueryStringFast(this._queryString)
+                ? fastQueryParse(this._queryString) as Record<string, any>
                 : {};
         }
         return this._query;
@@ -298,56 +335,6 @@ export class ContextImpl implements Context {
 
     set cookies(value: Cookies) {
         this._cookies = value as CookieManager;
-    }
-
-    /**
-     * Decode URI component only if needed (has encoded chars)
-     * This is a performance optimization - indexOf is much faster than decodeURIComponent
-     */
-    private decodeIfNeeded(str: string): string {
-        // Check for encoded characters: % (percent encoding) or + (space in form data)
-        if (str.indexOf('%') === -1 && str.indexOf('+') === -1) {
-            return str;  // Fast path: no decoding needed
-        }
-        // Replace + with space (form data encoding) then decode percent encoding
-        return decodeURIComponent(str.replace(/\+/g, ' '));
-    }
-
-    /**
-     * Fast query string parser - optimized for common cases
-     * Skips decodeURIComponent for simple ASCII strings (90% of cases)
-     */
-    private parseQueryStringFast(queryString: string): Record<string, any> {
-        if (!queryString) return {};
-        
-        const result: Record<string, any> = {};
-        const pairs = queryString.split('&');
-        
-        for (let i = 0; i < pairs.length; i++) {
-            const pair = pairs[i];
-            const eqIndex = pair.indexOf('=');
-            
-            if (eqIndex === -1) {
-                // Key only, no value
-                result[this.decodeIfNeeded(pair)] = '';
-            } else {
-                const key = this.decodeIfNeeded(pair.substring(0, eqIndex));
-                const value = this.decodeIfNeeded(pair.substring(eqIndex + 1));
-                
-                // Handle array values (key[]=value or repeated keys)
-                if (result[key] !== undefined) {
-                    if (Array.isArray(result[key])) {
-                        result[key].push(value);
-                    } else {
-                        result[key] = [result[key], value];
-                    }
-                } else {
-                    result[key] = value;
-                }
-            }
-        }
-        
-        return result;
     }
 
     /**
@@ -427,6 +414,28 @@ export class ContextImpl implements Context {
     }
 
     /**
+     * Check if body is ready for sync access (no await needed)
+     */
+    get isBodyReady(): boolean {
+        return this._bodyParsed;
+    }
+
+    /**
+     * Wait for body to be parsed
+     * Use this if you need to ensure body is available for sync access
+     * @example
+     * ```typescript
+     * app.post('/data', async (ctx) => {
+     *   await ctx.waitForBody();
+     *   console.log(ctx.body); // Now safe to access synchronously
+     * });
+     * ```
+     */
+    async waitForBody(): Promise<any> {
+        return this.getBody();
+    }
+
+    /**
      * Async body getter - use this in handlers for POST/PUT/PATCH
      * @example
      * ```typescript
@@ -497,7 +506,7 @@ export class ContextImpl implements Context {
                     if (isJSON) {
                         resolve(JSON.parse(body));
                     } else if (isForm) {
-                        resolve(this.parseQueryStringFast(body));
+                        resolve(fastQueryParse(body));
                     } else {
                         resolve(body);
                     }
@@ -549,7 +558,7 @@ export class ContextImpl implements Context {
                     if (contentType.includes('application/json')) {
                         resolve(JSON.parse(body));
                     } else if (contentType.includes('application/x-www-form-urlencoded')) {
-                        resolve(this.parseQueryStringFast(body));
+                        resolve(fastQueryParse(body));
                     } else {
                         resolve(body);
                     }
@@ -569,7 +578,7 @@ export class ContextImpl implements Context {
         if (contentType.includes('application/json')) {
             return body ? JSON.parse(body) : {};
         } else if (contentType.includes('application/x-www-form-urlencoded')) {
-            return this.parseQueryStringFast(body);
+            return fastQueryParse(body);
         } else if (contentType.includes('text/')) {
             return body;
         }
@@ -781,6 +790,17 @@ export class ContextImpl implements Context {
     }
 
     /**
+     * Set response serializers for fast JSON serialization
+     * Called by router when route has response schema
+     * @internal
+     */
+    setSerializers(serializers: Map<number | string, SerializerFunction>): void {
+        if (this.response && typeof (this.response as ResponseBuilderImpl).setSerializers === 'function') {
+            (this.response as ResponseBuilderImpl).setSerializers(serializers);
+        }
+    }
+
+    /**
      * Set request body (called after parsing or by middleware)
      * @deprecated Use ctx.getBody() for async body access
      */
@@ -820,7 +840,7 @@ export async function parseBody(req: IncomingMessage): Promise<any> {
                 if (contentType.includes('application/json')) {
                     resolve(body ? JSON.parse(body) : {});
                 } else if (contentType.includes('application/x-www-form-urlencoded')) {
-                    resolve(parseQueryString(body));
+                    resolve(fastQueryParse(body));
                 } else if (contentType.includes('text/')) {
                     resolve(body);
                 } else {

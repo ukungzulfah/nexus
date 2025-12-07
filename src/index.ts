@@ -94,6 +94,23 @@ export { BufferPool, StreamUtils } from './core/performance/buffer-pool';
 export { MiddlewareOptimizer, PerformanceMonitor } from './core/performance/middleware-optimizer';
 
 // =============================================================================
+// FAST JSON SERIALIZER
+// =============================================================================
+
+export {
+    createSerializer,
+    createArraySerializer,
+    serialize,
+    serializerRegistry,
+    SerializerRegistry,
+    CommonSchemas,
+    type JSONSchema,
+    type ResponseSchemaConfig,
+    type SerializerFunction,
+    type SerializerOptions
+} from './core/serializer';
+
+// =============================================================================
 // SECURITY
 // =============================================================================
 

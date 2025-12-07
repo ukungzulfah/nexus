@@ -4,20 +4,26 @@
  * Automatically scans a directory and registers routes based on file/folder structure.
  * Designed for class-based routing: 1 file = 1 class = 1 route.
  * 
- * Smart filename conventions:
+ * Smart filename conventions (only if no body schema):
  * - `index.ts`  → GET (default), maps to parent path
  * - `create.ts` → POST, maps to parent path (not /create)
  * - `update.ts` → PUT, maps to parent path (not /update)
  * - `delete.ts` → DELETE, maps to parent path (not /delete)
  * - `patch.ts`  → PATCH, maps to parent path (not /patch)
- * - Other files → GET (or specify `method` in class)
+ * - Other files → GET (default)
+ * 
+ * Smart body detection (HIGHEST PRIORITY after explicit method):
+ * - If schema() returns object with `body` property → POST
+ * - Works with inheritance (parent class schema is checked too)
+ * - Overrides smart filename detection!
+ * - Override by explicitly setting `method` property in class
  * 
  * @example
  * ```
  * routes/
  *   api/
  *     auth/
- *       register.ts       → POST /api/auth/register (method = 'POST' in class)
+ *       register.ts       → POST /api/auth/register (auto-detected via ctx.body!)
  *       login.ts          → POST /api/auth/login
  *     users/
  *       index.ts          → GET /api/users
@@ -31,11 +37,18 @@
  * Each file exports a class:
  * ```typescript
  * export default class RegisterRoute {
- *   method = 'POST'  // Optional if filename is create/update/delete
+ *   // No need to specify method = 'POST' if schema has body!
  *   
- *   schema() { ... }
- *   meta() { ... }
- *   async handler(ctx: Context) { ... }
+ *   schema() {
+ *     return {
+ *       body: z.object({ ... })  // ← auto-detects POST!
+ *     };
+ *   }
+ *   
+ *   async handler(ctx: Context) {
+ *     const data = ctx.body;
+ *     ...
+ *   }
  * }
  * ```
  */
@@ -429,16 +442,32 @@ export class FileRouter {
             
             // Determine HTTP method:
             // 1. If class explicitly defines method → use it
-            // 2. If filename is smart (create/update/delete/patch/index) → auto-detect
-            // 3. Otherwise → default GET
+            // 2. If schema has body definition → auto-detect as POST (highest priority for body!)
+            // 3. If filename is smart (create/update/delete/patch/index) → auto-detect from filename
+            // 4. Otherwise → default GET
             let method: HTTPMethod;
+            
             if (route.method) {
                 // Handle both single method and array of methods (use first one for file-based routing)
                 method = Array.isArray(route.method) ? route.method[0] : route.method;
-            } else if (isSmartFilename(nameWithoutExt)) {
-                method = getSmartMethod(nameWithoutExt);
             } else {
-                method = DEFAULT_METHOD;
+                // Check schema for body definition first (works with inheritance!)
+                const schema = route.schema?.();
+                if (this.options.debug) {
+                    console.log(`🔍 Smart detection for ${filePath}:`);
+                    console.log(`   - schema:`, schema);
+                    console.log(`   - has body:`, !!schema?.body);
+                }
+                
+                if (schema?.body) {
+                    // Schema has body → POST (overrides smart filename!)
+                    method = 'POST';
+                } else if (isSmartFilename(nameWithoutExt)) {
+                    // Smart filename detection (create→POST, update→PUT, etc.)
+                    method = getSmartMethod(nameWithoutExt);
+                } else {
+                    method = DEFAULT_METHOD;
+                }
             }
             
             // Validate method

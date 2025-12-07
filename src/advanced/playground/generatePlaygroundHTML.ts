@@ -517,6 +517,39 @@ export function generatePlaygroundHTML(config: PlaygroundConfig, baseUrl: string
             line-height: 1.5;
         }
 
+        .info-curl-section {
+            margin-bottom: 16px;
+        }
+
+        .info-curl-btn {
+            width: 100%;
+            padding: 10px 16px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .info-curl-btn:hover {
+            background: var(--accent-color);
+            border-color: var(--accent-color);
+            color: #fff;
+        }
+
+        .info-curl-btn.copied {
+            background: var(--success-color);
+            border-color: var(--success-color);
+            color: #fff;
+        }
+
         /* Resizer */
         .resizer {
             height: 6px;
@@ -1402,6 +1435,13 @@ export function generatePlaygroundHTML(config: PlaygroundConfig, baseUrl: string
             html += '<span class="path">' + ep.path + '</span>';
             html += '</div>';
 
+            // Copy as CURL button
+            html += '<div class="info-curl-section">';
+            html += '<button class="info-curl-btn" onclick="copyAsCurl()" id="curlCopyBtn">';
+            html += '<span>📋</span> Copy as CURL';
+            html += '</button>';
+            html += '</div>';
+
             // Deprecated warning
             if (ep.deprecated) {
                 html += '<div class="info-section">';
@@ -1549,6 +1589,73 @@ export function generatePlaygroundHTML(config: PlaygroundConfig, baseUrl: string
             
             // Save tab state
             saveCurrentTabState();
+        }
+
+        function copyAsCurl() {
+            const method = document.getElementById('methodSelect').value;
+            const url = document.getElementById('urlInput').value;
+            const body = requestEditor ? requestEditor.getValue() : '{}';
+            
+            // Build CURL command
+            let curl = 'curl';
+            
+            // Add method
+            if (method !== 'GET') {
+                curl += ' -X ' + method;
+            }
+            
+            // Add URL (with query params)
+            let fullUrl = url;
+            const enabledParams = params.filter(p => p.enabled && p.key);
+            if (enabledParams.length > 0) {
+                const queryString = enabledParams
+                    .map(p => encodeURIComponent(p.key) + '=' + encodeURIComponent(p.value))
+                    .join('&');
+                fullUrl += (fullUrl.includes('?') ? '&' : '?') + queryString;
+            }
+            curl += " '" + fullUrl + "'";
+            
+            // Add headers
+            headers.filter(h => h.enabled && h.key).forEach(h => {
+                curl += " -H '" + h.key + ": " + h.value + "'";
+            });
+            
+            // Add body for non-GET requests
+            if (method !== 'GET' && method !== 'DELETE') {
+                try {
+                    // Check if body is valid JSON and not empty
+                    const parsedBody = JSON.parse(body);
+                    if (Object.keys(parsedBody).length > 0) {
+                        // Escape single quotes in body for shell
+                        const escapedBody = body.replace(/'/g, "'\\''");
+                        curl += " -d '" + escapedBody + "'";
+                    }
+                } catch (e) {
+                    // If not valid JSON but has content, still include it
+                    if (body && body.trim() !== '' && body.trim() !== '{}') {
+                        const escapedBody = body.replace(/'/g, "'\\''");
+                        curl += " -d '" + escapedBody + "'";
+                    }
+                }
+            }
+            
+            // Copy to clipboard
+            navigator.clipboard.writeText(curl).then(() => {
+                // Visual feedback
+                const btn = document.getElementById('curlCopyBtn');
+                if (btn) {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = '<span>✓</span> Copied!';
+                    btn.classList.add('copied');
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.classList.remove('copied');
+                    }, 2000);
+                }
+            }).catch(err => {
+                console.error('Failed to copy CURL:', err);
+                alert('Failed to copy CURL to clipboard');
+            });
         }
 
         function switchTab(tab) {

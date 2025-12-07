@@ -4,7 +4,7 @@
  */
 
 import { IncomingMessage, ServerResponse } from 'http';
-import { ContextImpl, parseBody } from './context';
+import { ContextImpl } from './context';
 import { Context } from './types';
 
 /**
@@ -23,27 +23,25 @@ export class ContextPool {
 
     /**
      * Acquire a context from the pool or create a new one
+     * Body parsing is now lazy - handlers should use ctx.getBody() for POST/PUT/PATCH
      */
-    async acquire(req: IncomingMessage, res: ServerResponse): Promise<Context> {
+    acquire(req: IncomingMessage, res: ServerResponse): Context {
         let ctx: ContextImpl;
 
         // Try to reuse from pool
         if (this.pool.length > 0) {
             ctx = this.pool.pop()!;
             this.reused++;
-            await this.reset(ctx, req, res);
+            // Use reinitialize instead of creating new object
+            ctx.reinitialize(req, res);
         } else {
             // Create new context
             ctx = new ContextImpl(req, res);
             this.created++;
         }
 
-        // Parse body if applicable (POST, PUT, PATCH)
-        const method = req.method;
-        if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
-            const body = await parseBody(req);
-            ctx.setBody(body);
-        }
+        // Body parsing removed - now lazy via ctx.getBody()
+        // This matches Fastify's architecture for optimal POST performance
 
         return ctx;
     }
@@ -53,49 +51,10 @@ export class ContextPool {
      */
     release(ctx: Context): void {
         if (this.pool.length < this.maxSize) {
-            // Clear sensitive data before pooling
-            this.clearContext(ctx as ContextImpl);
+            // Just push back - reinitialize will handle reset
             this.pool.push(ctx as ContextImpl);
         }
         // If pool is full, let GC handle it
-    }
-
-    /**
-     * Reset context for reuse  
-     */
-    private async reset(
-        ctx: ContextImpl,
-        req: IncomingMessage,
-        res: ServerResponse
-    ): Promise<void> {
-        // Recreate the context with new request/response
-        const newCtx = new ContextImpl(req, res);
-
-        // Copy properties
-        Object.assign(ctx, newCtx);
-    }
-
-    /**
-     * Clear sensitive data from context
-     */
-    private clearContext(ctx: ContextImpl): void {
-        ctx.params = {};
-        ctx.query = {};
-        ctx.body = null;
-
-        // Clear custom properties added by middleware
-        const knownProps = new Set([
-            'method', 'path', 'url', 'params', 'query', 'body',
-            'headers', 'cookies', 'raw', 'response',
-            'json', 'html', 'text', 'redirect', 'stream',
-            'setParams', 'setBody', 'getSetCookieHeaders'
-        ]);
-
-        for (const key in ctx) {
-            if (!knownProps.has(key)) {
-                delete (ctx as any)[key];
-            }
-        }
     }
 
     /**

@@ -76,5 +76,19 @@ export {
 export { BufferPool, StreamUtils } from './performance/buffer-pool';
 export { MiddlewareOptimizer, PerformanceMonitor } from './performance/middleware-optimizer';
 
+// Fast JSON Serializer
+export {
+    createSerializer,
+    createArraySerializer,
+    serialize,
+    serializerRegistry,
+    SerializerRegistry,
+    CommonSchemas,
+    type JSONSchema,
+    type ResponseSchemaConfig,
+    type SerializerFunction,
+    type SerializerOptions
+} from './serializer';
+
 // Re-export Zod for convenience
 export { z } from 'zod';

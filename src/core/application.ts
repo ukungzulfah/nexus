@@ -1045,48 +1045,37 @@ export class Application<TDeps extends DependencyContainer = {}> {
 
     /**
      * Handle incoming HTTP request
+     * Optimized hot path for maximum performance
      */
     private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        let ctx: Context | null = null;
-        let response: Response | null = null;
-
+        // Use non-null assertion - context pool always returns valid context
+        // acquire is now sync for better performance
+        const ctx = this.contextPool.acquire(req, res) as any;
+        
         try {
-            // Acquire context from pool
-            ctx = await this.contextPool.acquire(req, res);
+            // Direct method calls - ContextImpl always has these methods
+            ctx.setStoreRegistry(this.storeRegistry);
+            ctx.setDebugMode(this.config.debug ?? false);
 
-            // Inject store registry into context
-            if ('setStoreRegistry' in ctx && typeof ctx.setStoreRegistry === 'function') {
-                (ctx as any).setStoreRegistry(this.storeRegistry);
-            }
-            
-            // Set debug mode for request stores
-            if ('setDebugMode' in ctx && typeof ctx.setDebugMode === 'function') {
-                (ctx as any).setDebugMode(this.config.debug ?? false);
-            }
-
-            // === HOOK: onRequest ===
+            // === HOOK: onRequest (skip check if no hooks) ===
             if (this.lifecycleHooks.onRequest) {
                 const hookResult = await this.lifecycleHooks.onRequest(ctx);
-                if (this.isResponse(hookResult)) {
+                if (hookResult && typeof hookResult === 'object' && 'statusCode' in hookResult) {
                     await this.sendResponse(res, hookResult, ctx);
+                    this.cleanupRequest(ctx);
                     return;
                 }
             }
 
-            // Apply versioning if configured
+            // Fast path: no versioning configured (most common)
             let matchPath = ctx.path;
             if (this.versioningConfig) {
                 const { version, basePath, source } = this.resolveVersion(ctx);
                 ctx.version = version;
                 ctx.versionSource = source;
                 
-                // For header/query strategy, rewrite path to versioned path
-                if (source === 'header' || source === 'query' || source === 'default') {
+                if (source !== 'path') {
                     matchPath = `/${version}${basePath.startsWith('/') ? basePath : '/' + basePath}`;
-                }
-                
-                if (this.config.debug) {
-                    console.log(`[Versioning] ${source} → ${version}, path: ${ctx.path} → ${matchPath}`);
                 }
             }
 
@@ -1094,96 +1083,173 @@ export class Application<TDeps extends DependencyContainer = {}> {
             const match = this.router.match(ctx.method, matchPath);
 
             if (!match) {
-                // Try fallback handler (e.g., static files)
+                // Try fallback handler
                 if (this.fallbackHandler) {
                     const fallbackResponse = await this.fallbackHandler(ctx, this.dependencies);
                     await this.sendResponse(res, fallbackResponse, ctx);
+                    this.cleanupRequest(ctx);
                     return;
                 }
 
-                // 404 Not Found
-                await this.sendResponse(res, {
-                    statusCode: 404,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ error: 'Not Found' })
-                }, ctx);
+                // 404 Not Found - use cached response
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end('{"error":"Not Found"}');
+                this.cleanupRequest(ctx);
                 return;
             }
 
-            // Set route params
-            if ('setParams' in ctx && typeof ctx.setParams === 'function') {
-                ctx.setParams(match.params);
-            } else {
-                ctx.params = match.params;
+            // Set route params directly
+            ctx.params = match.params;
+
+            // Set serializers for fast JSON response if available
+            if (match._serializer) {
+                ctx.setSerializers(match._serializer);
             }
 
-            // Combine global and route-specific middleware
-            const allMiddlewares = [...this.globalMiddlewares, ...match.middlewares];
+            // Auto-parse body for POST/PUT/PATCH if body exists
+            // This maintains backwards compatibility while keeping lazy-loading for GET
+            const method = ctx.method;
+            if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+                // Only parse if there's actually a body (Content-Length > 0 or Transfer-Encoding)
+                const contentLength = req.headers['content-length'];
+                const transferEncoding = req.headers['transfer-encoding'];
+                const hasBody = (contentLength && contentLength !== '0') || transferEncoding;
+                
+                if (hasBody) {
+                    await ctx.getBody();
+                }
+            }
 
-            // Execute middleware chain and handler with hooks
-            response = await this.middlewareExecutor.executeWithHooks(
-                ctx,
-                allMiddlewares,
-                match.handler,
-                this.lifecycleHooks,
-                this.dependencies
-            );
+            // Fast path: no middleware
+            let response: Response;
+            if (this.globalMiddlewares.length === 0 && match.middlewares.length === 0) {
+                // Direct handler execution (skip middleware executor)
+                response = await this.executeHandlerDirect(ctx, match.handler);
+            } else {
+                // Combine global and route-specific middleware
+                const allMiddlewares = this.globalMiddlewares.length === 0 
+                    ? match.middlewares 
+                    : match.middlewares.length === 0 
+                        ? this.globalMiddlewares 
+                        : [...this.globalMiddlewares, ...match.middlewares];
+
+                // Execute middleware chain and handler with hooks
+                response = await this.middlewareExecutor.executeWithHooks(
+                    ctx,
+                    allMiddlewares,
+                    match.handler,
+                    this.lifecycleHooks,
+                    this.dependencies
+                );
+            }
 
             // === HOOK: onResponse ===
             if (this.lifecycleHooks.onResponse) {
                 const hookResult = await this.lifecycleHooks.onResponse(ctx, response);
-                if (this.isResponse(hookResult)) {
+                if (hookResult && typeof hookResult === 'object' && 'statusCode' in hookResult) {
                     response = hookResult;
                 }
             }
 
             // Send response
             await this.sendResponse(res, response, ctx);
+            this.cleanupRequest(ctx);
 
         } catch (error) {
+            await this.handleError(error as Error, ctx, res);
+        }
+    }
+
+    /**
+     * Execute handler directly without middleware (fast path)
+     */
+    private async executeHandlerDirect(ctx: any, handler: Handler): Promise<Response> {
+        // === HOOK: beforeHandler ===
+        if (this.lifecycleHooks.beforeHandler) {
+            const hookResult = await this.lifecycleHooks.beforeHandler(ctx);
+            if (hookResult && typeof hookResult === 'object' && 'statusCode' in hookResult) {
+                return hookResult;
+            }
+        }
+
+        let result = await handler(ctx, this.dependencies);
+
+        // If handler returns an Error, throw it
+        if (result instanceof Error) {
+            (result as any)._isIntentional = true;
+            throw result;
+        }
+
+        // === HOOK: afterHandler ===
+        if (this.lifecycleHooks.afterHandler) {
+            const transformedResult = await this.lifecycleHooks.afterHandler(ctx, result);
+            if (transformedResult !== undefined) {
+                result = transformedResult;
+            }
+        }
+
+        // If result is a Response, return it
+        if (result && typeof result === 'object' && 'statusCode' in result && 'body' in result) {
+            return result as Response;
+        }
+
+        // Otherwise, wrap in JSON response
+        return ctx.json(result);
+    }
+
+    /**
+     * Cleanup request resources
+     */
+    private cleanupRequest(ctx: any): void {
+        // Dispose request-scoped stores
+        if (ctx.disposeRequestStores) {
+            ctx.disposeRequestStores();
+        }
+        // Release context back to pool
+        this.contextPool.release(ctx);
+    }
+
+    /**
+     * Handle errors
+     */
+    private async handleError(error: Error, ctx: any, res: ServerResponse): Promise<void> {
+        try {
             // === HOOK: onError ===
             if (ctx && this.lifecycleHooks.onError) {
                 try {
-                    const hookResult = await this.lifecycleHooks.onError(ctx, error as Error);
-                    if (this.isResponse(hookResult)) {
+                    const hookResult = await this.lifecycleHooks.onError(ctx, error);
+                    if (hookResult && typeof hookResult === 'object' && 'statusCode' in hookResult) {
                         await this.sendResponse(res, hookResult, ctx);
+                        this.cleanupRequest(ctx);
                         return;
                     }
                 } catch (hookError) {
-                    // Hook itself threw an error, continue to default error handler
                     console.error('onError hook failed:', hookError);
                 }
             }
 
             // Handle errors with default error handler
-            try {
-                const errorResponse = await this.errorHandler(error as Error, ctx!);
-                
-                // === HOOK: onResponse (for error responses) ===
-                if (ctx && this.lifecycleHooks.onResponse) {
-                    const hookResult = await this.lifecycleHooks.onResponse(ctx, errorResponse);
-                    if (this.isResponse(hookResult)) {
-                        await this.sendResponse(res, hookResult, ctx);
-                        return;
-                    }
+            const errorResponse = await this.errorHandler(error, ctx);
+            
+            // === HOOK: onResponse (for error responses) ===
+            if (ctx && this.lifecycleHooks.onResponse) {
+                const hookResult = await this.lifecycleHooks.onResponse(ctx, errorResponse);
+                if (hookResult && typeof hookResult === 'object' && 'statusCode' in hookResult) {
+                    await this.sendResponse(res, hookResult, ctx);
+                    this.cleanupRequest(ctx);
+                    return;
                 }
-                
-                await this.sendResponse(res, errorResponse, ctx!);
-            } catch (handlerError) {
-                // Fallback error response
-                res.writeHead(500, { 'Content-Type': 'text/plain' });
-                res.end('Internal Server Error');
-            }
-        } finally {
-            // Dispose request-scoped stores
-            if (ctx && 'disposeRequestStores' in ctx && typeof ctx.disposeRequestStores === 'function') {
-                (ctx as any).disposeRequestStores();
             }
             
-            // Release context back to pool
-            if (ctx) {
-                this.contextPool.release(ctx);
-            }
+            await this.sendResponse(res, errorResponse, ctx);
+        } catch (handlerError) {
+            // Fallback error response
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end('Internal Server Error');
+        }
+        
+        if (ctx) {
+            this.cleanupRequest(ctx);
         }
     }
     
@@ -1202,13 +1268,65 @@ export class Application<TDeps extends DependencyContainer = {}> {
 
     /**
      * Send HTTP response
+     * Optimized for minimal overhead - key for benchmark performance
      */
     private async sendResponse(res: ServerResponse, response: Response, ctx: Context): Promise<void> {
-        // Set status code
-        res.statusCode = response.statusCode;
+        // Handle stream responses separately
+        if (response.stream) {
+            res.statusCode = response.statusCode;
+            const headers = response.headers;
+            for (const key in headers) {
+                const value = headers[key];
+                if (value !== undefined) {
+                    res.setHeader(key, value);
+                }
+            }
+            response.stream.pipe(res);
+            return;
+        }
 
-        // Set headers
-        for (const [key, value] of Object.entries(response.headers)) {
+        const body = response.body;
+        const headers = response.headers;
+        
+        // Fast path for JSON responses (most common case)
+        // Use writeHead for single syscall instead of multiple setHeader calls
+        if (headers['Content-Type'] === 'application/json') {
+            // Calculate content length for proper HTTP behavior
+            const contentLength = Buffer.byteLength(body, 'utf8');
+            
+            // Check if we need to set cookies
+            let setCookies: string[] | null = null;
+            if ('getSetCookieHeaders' in ctx && typeof ctx.getSetCookieHeaders === 'function') {
+                const cookies = ctx.getSetCookieHeaders();
+                if (cookies.length > 0) {
+                    setCookies = cookies;
+                }
+            }
+            
+            // Single writeHead call for all headers
+            if (setCookies) {
+                res.writeHead(response.statusCode, {
+                    'Content-Type': 'application/json',
+                    'Content-Length': contentLength,
+                    'Set-Cookie': setCookies
+                });
+            } else {
+                res.writeHead(response.statusCode, {
+                    'Content-Type': 'application/json',
+                    'Content-Length': contentLength
+                });
+            }
+            
+            res.end(body);
+            return;
+        }
+
+        // General path for other response types
+        res.statusCode = response.statusCode;
+        
+        // Set headers using for-in (faster than Object.entries)
+        for (const key in headers) {
+            const value = headers[key];
             if (value !== undefined) {
                 res.setHeader(key, value);
             }
@@ -1222,12 +1340,12 @@ export class Application<TDeps extends DependencyContainer = {}> {
             }
         }
 
-        // Send body or stream
-        if (response.stream) {
-            response.stream.pipe(res);
-        } else {
-            res.end(response.body);
+        // Set Content-Length for non-stream responses
+        if (body && typeof body === 'string') {
+            res.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'));
         }
+
+        res.end(body);
     }
 
     /**

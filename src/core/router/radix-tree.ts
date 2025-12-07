@@ -4,6 +4,7 @@
  */
 
 import { Handler, Middleware } from '../types';
+import { SerializerFunction } from '../serializer';
 
 /**
  * Node in the radix tree
@@ -29,6 +30,9 @@ export class RadixNode {
 
     // Parameter name for param nodes
     paramName?: string;
+
+    // Compiled serializers for response (status code → serializer)
+    serializers: Map<number | string, SerializerFunction> | null = null;
 
     constructor(segment: string, fullPath: string) {
         this.segment = segment;
@@ -103,7 +107,12 @@ export class RadixTree {
     /**
      * Insert a route into the tree
      */
-    insert(path: string, handler: Handler, middlewares: Middleware[] = []): void {
+    insert(
+        path: string, 
+        handler: Handler, 
+        middlewares: Middleware[] = [],
+        serializers?: Map<number | string, SerializerFunction>
+    ): void {
         const segments = this.splitPath(path);
         let current = this.root;
 
@@ -120,15 +129,21 @@ export class RadixTree {
             current = child;
         }
 
-        // Set handler and middleware at terminal node
+        // Set handler, middleware, and serializers at terminal node
         current.handler = handler;
         current.middlewares = middlewares;
+        current.serializers = serializers || null;
     }
 
     /**
      * Search for a route match
      */
-    search(path: string): { handler: Handler; params: Record<string, string>; middlewares: Middleware[] } | null {
+    search(path: string): { 
+        handler: Handler; 
+        params: Record<string, string>; 
+        middlewares: Middleware[];
+        serializers: Map<number | string, SerializerFunction> | null;
+    } | null {
         const segments = this.splitPath(path);
         const params: Record<string, string> = {};
 
@@ -138,7 +153,8 @@ export class RadixTree {
             return {
                 handler: result.handler!,
                 params,
-                middlewares: result.middlewares
+                middlewares: result.middlewares,
+                serializers: result.serializers
             };
         }
 
