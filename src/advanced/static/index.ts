@@ -24,9 +24,12 @@
  */
 
 import { serveStatic } from './serveStatic';
+import { publicDir } from './publicDir';
 
 /**
  * Alias for serveStatic
  */
 export const staticFiles = serveStatic;
+
+export { serveStatic, publicDir };
 

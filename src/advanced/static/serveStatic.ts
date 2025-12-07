@@ -27,6 +27,10 @@ export function serveStatic(config: StaticConfig = {}): Plugin {
             // Create the static file handler
             const staticHandler: Handler = async (ctx) => {
                 let requestPath = ctx.path;
+                
+                if (app.config?.debug) {
+                    console.log(`📁 Static request: ${requestPath}`);
+                }
 
                 // Remove prefix if set
                 if (normalizedPrefix && requestPath.startsWith(normalizedPrefix)) {
@@ -66,6 +70,9 @@ export function serveStatic(config: StaticConfig = {}): Plugin {
 
                 // Check if file/directory exists
                 if (!existsSync(filePath)) {
+                    if (app.config?.debug) {
+                        console.log(`📁 Static: File not found: ${filePath}`);
+                    }
                     // Try fallback for SPA
                     if (fallback) {
                         const fallbackPath = join(rootPath, fallback);
@@ -93,7 +100,7 @@ export function serveStatic(config: StaticConfig = {}): Plugin {
 
                     // Directory listing
                     if (directory) {
-                        const html = await generateDirectoryListing(filePath, requestPath);
+                        const html = await generateDirectoryListing(filePath, requestPath, normalizedPrefix);
                         return {
                             statusCode: 200,
                             headers: { 'Content-Type': 'text/html; charset=utf-8' },

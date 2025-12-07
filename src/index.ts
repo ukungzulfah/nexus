@@ -247,7 +247,7 @@ export { TestClient } from './advanced/testing/harness';
 // =============================================================================
 
 // Static File Serving
-export { staticFiles } from './advanced/static';
+export { staticFiles, publicDir, serveStatic } from './advanced/static';
 
 // WebSocket / Realtime
 export {
