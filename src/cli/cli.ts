@@ -1,6 +1,7 @@
 import { CreateCommand } from './commands/create';
 import { InitCommand } from './commands/init';
 import { GenerateCommand } from './commands/generate';
+import { AddCommand } from './commands/add';
 import { DevCommand } from './commands/dev';
 import { BuildCommand } from './commands/build';
 import { HelpCommand } from './commands/help';
@@ -36,6 +37,7 @@ export class CLI {
       new CreateCommand(),
       new InitCommand(),
       new GenerateCommand(),
+      new AddCommand(),
       new DevCommand(),
       new BuildCommand(),
       new HelpCommand(() => this.commands),
@@ -142,6 +144,7 @@ export class CLI {
     create <name>     Create a new Nexus project
     init              Initialize Nexus in current directory
     generate <type>   Generate components (route, middleware, etc.)
+    add <plugin>      Add plugins (swagger, playground, postman)
     dev               Start development server
     build             Build for production
 

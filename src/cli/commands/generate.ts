@@ -3,7 +3,7 @@ import { Logger } from '../utils/logger';
 import { FileSystem } from '../utils/file-system';
 import { GeneratorTemplates } from '../templates/generators';
 
-type GeneratorType = 'route' | 'middleware' | 'controller' | 'service' | 'model' | 'validator';
+type GeneratorType = 'route' | 'route-class' | 'middleware' | 'controller' | 'service' | 'model' | 'validator';
 
 export class GenerateCommand implements Command {
   name = 'generate';
@@ -24,7 +24,7 @@ export class GenerateCommand implements Command {
   ];
 
   private logger = new Logger();
-  private validTypes: GeneratorType[] = ['route', 'middleware', 'controller', 'service', 'model', 'validator'];
+  private validTypes: GeneratorType[] = ['route', 'route-class', 'middleware', 'controller', 'service', 'model', 'validator'];
 
   async execute(
     args: string[],
@@ -76,7 +76,8 @@ export class GenerateCommand implements Command {
 ${this.logger.colors.bright}Usage:${this.logger.colors.reset} nexus generate <type> <name> [options]
 
 ${this.logger.colors.bright}Types:${this.logger.colors.reset}
-  route        Generate a route handler
+  route        Generate a function-based route handler
+  route-class  Generate a class-based route (with meta, schema, onBefore)
   middleware   Generate a middleware
   controller   Generate a controller class
   service      Generate a service class
@@ -85,6 +86,7 @@ ${this.logger.colors.bright}Types:${this.logger.colors.reset}
 
 ${this.logger.colors.bright}Examples:${this.logger.colors.reset}
   nexus generate route users
+  nexus generate route-class users
   nexus generate controller UserController
   nexus generate middleware auth
   nexus generate route products --methods get,post,put,delete

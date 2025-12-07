@@ -61,7 +61,7 @@ export class ProjectTemplates {
     };
 
     const dependencies: Record<string, string> = {
-      '@engjts/nexus': '^0.1.0',
+      '@engjts/nexus': '^0.1.3',
       zod: '^3.22.4',
       ws: '^8.16.0',
     };
@@ -82,7 +82,7 @@ export class ProjectTemplates {
     return JSON.stringify(
       {
         name: this.projectName,
-        version: '1.0.0',
+        version: '0.1.0',
         description: `${this.projectName} - Powered by Nexus`,
         main: 'dist/index.js',
         scripts,

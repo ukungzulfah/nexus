@@ -1,4 +1,4 @@
-type GeneratorType = 'route' | 'middleware' | 'controller' | 'service' | 'model' | 'validator';
+type GeneratorType = 'route' | 'route-class' | 'middleware' | 'controller' | 'service' | 'model' | 'validator';
 
 interface GeneratorResult {
   filePath: string;
@@ -15,6 +15,8 @@ export class GeneratorTemplates {
     switch (type) {
       case 'route':
         return this.generateRoute(name, options.methods);
+      case 'route-class':
+        return this.generateRouteClass(name, options.methods);
       case 'middleware':
         return this.generateMiddleware(name);
       case 'controller':
@@ -49,9 +51,9 @@ export class GeneratorTemplates {
         return `
 // ${method.toUpperCase()} /${name}
 ${routeName}Routes.${method}('/', async (ctx) => {
-  return ctx.json({
+  return {
     message: '${method.toUpperCase()} /${name}',
-  });
+  };
 });`;
       })
       .join('\n');
@@ -60,6 +62,51 @@ ${routeName}Routes.${method}('/', async (ctx) => {
 
 export const ${routeName}Routes = new Router();
 ${routeHandlers}
+`;
+
+    return {
+      filePath: `src/routes/${name}.ts`,
+      content,
+    };
+  }
+
+  private generateRouteClass(name: string, methods: string[]): GeneratorResult {
+    const className = this.toPascalCase(name);
+    const baseName = name.toLowerCase();
+    const method = methods[0] || 'get';
+
+    const content = `import { Route, Context, z } from '@engjts/nexus';
+
+export class ${className}Route extends Route {
+  pathName = '/${baseName}';
+
+  meta() {
+    return {
+      summary: '${className} route',
+      description: '${className} route description',
+      tags: ['${className}'],
+    };
+  }
+
+  schema() {
+    return {
+      // params: z.object({}),
+      // query: z.object({}),
+      // body: z.object({}),
+    };
+  }
+
+  async onBefore(ctx: Context) {
+    // Hook sebelum handler
+    // Return value untuk skip handler dan langsung return response
+  }
+
+  async handler(ctx: Context) {
+    return {
+      message: '${method.toUpperCase()} /${baseName}',
+    };
+  }
+}
 `;
 
     return {
