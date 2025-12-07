@@ -332,11 +332,59 @@ export class Application<TDeps extends DependencyContainer = {}> {
     }
 
     /**
-     * Add global middleware
+     * Add global middleware or mount a router
+     * 
+     * @example
+     * ```typescript
+     * // Add middleware
+     * app.use(loggerMiddleware);
+     * app.use(corsMiddleware);
+     * 
+     * // Mount router
+     * const routes = new Router();
+     * routes.get('/users', getUsers);
+     * app.use(routes);
+     * 
+     * // Mount router with prefix
+     * app.use('/api', routes);
+     * ```
      */
-    use(middleware: Middleware): this {
-        this.globalMiddlewares.push(middleware);
+    use(middlewareOrRouter: Middleware | Router): this;
+    use(prefix: string, router: Router): this;
+    use(middlewareOrPrefixOrRouter: Middleware | Router | string, router?: Router): this {
+        // app.use('/api', router)
+        if (typeof middlewareOrPrefixOrRouter === 'string' && router) {
+            this.mountRouter(middlewareOrPrefixOrRouter, router);
+            return this;
+        }
+
+        // app.use(router)
+        if (middlewareOrPrefixOrRouter instanceof Router) {
+            this.mountRouter('', middlewareOrPrefixOrRouter);
+            return this;
+        }
+
+        // app.use(middleware)
+        this.globalMiddlewares.push(middlewareOrPrefixOrRouter as Middleware);
         return this;
+    }
+
+    /**
+     * Mount a router's routes into the application
+     */
+    private mountRouter(prefix: string, router: Router): void {
+        const routes = router.getRawRoutes();
+        for (const route of routes) {
+            const fullPath = prefix ? `${prefix}${route.path}` : route.path;
+            this.router.addRoute({
+                method: route.method,
+                path: fullPath,
+                handler: route.config.handler,
+                middlewares: route.config.middlewares,
+                schema: route.config.schema,
+                meta: route.config.meta
+            });
+        }
     }
 
     /**
@@ -933,7 +981,9 @@ export class Application<TDeps extends DependencyContainer = {}> {
     /**
      * Start the HTTP server
      */
-    listen(port: number, callback?: () => void): HTTPServer {
+    listen(port: number | string, callback?: () => void): HTTPServer {
+        const portNumber = typeof port === 'string' ? parseInt(port, 10) : port;
+        
         this.server = createServer(async (req, res) => {
             await this.handleRequest(req, res);
         });
@@ -948,7 +998,7 @@ export class Application<TDeps extends DependencyContainer = {}> {
             this.wsGateway.attach(this.server);
         }
 
-        this.server.listen(port, () => {
+        this.server.listen(portNumber, () => {
             // Notify plugins that server is ready
             this.pluginManager.notifyReady().catch(err => {
                 console.error('[PluginManager] Error in ready phase:', err);
@@ -961,10 +1011,12 @@ export class Application<TDeps extends DependencyContainer = {}> {
     /**
      * Start the server (alias for listen with modern options)
      */
-    start(options: { port: number; host?: string; callback?: () => void } | number): HTTPServer {
-        if (typeof options === 'number') {
+    start(options: { port: number | string; host?: string; callback?: () => void } | number | string): HTTPServer {
+        if (typeof options === 'number' || typeof options === 'string') {
             return this.listen(options);
         }
+
+        const portNumber = typeof options.port === 'string' ? parseInt(options.port, 10) : options.port;
 
         this.server = createServer(async (req, res) => {
             await this.handleRequest(req, res);
@@ -980,8 +1032,8 @@ export class Application<TDeps extends DependencyContainer = {}> {
             this.wsGateway.attach(this.server);
         }
 
-        const { port, host = '0.0.0.0', callback } = options;
-        this.server.listen(port, host, () => {
+        const { host = '0.0.0.0', callback } = options;
+        this.server.listen(portNumber, host, () => {
             // Notify plugins that server is ready
             this.pluginManager.notifyReady().catch(err => {
                 console.error('[PluginManager] Error in ready phase:', err);

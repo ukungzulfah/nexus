@@ -17,7 +17,7 @@ import {
 /**
  * Route with validation schema and metadata
  */
-interface RouteEntry {
+export interface RouteEntry {
     handler: Handler;
     middlewares: Middleware[];
     schema?: SchemaConfig;
@@ -30,8 +30,10 @@ interface RouteEntry {
 export class Router {
     private trees: Map<HTTPMethod, RadixTree> = new Map();
     private routes: Array<{ method: HTTPMethod; path: string; config: RouteEntry }> = [];
+    private prefix: string = '';
 
-    constructor() {
+    constructor(prefix: string = '') {
+        this.prefix = prefix;
         // Initialize trees for each HTTP method
         const methods: HTTPMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
         for (const method of methods) {
@@ -44,6 +46,7 @@ export class Router {
      */
     addRoute(config: RouteConfig): void {
         const { method, path, handler, middlewares = [], schema, meta } = config;
+        const fullPath = this.prefix ? `${this.prefix}${path}` : path;
 
         const tree = this.trees.get(method);
         if (!tree) {
@@ -53,12 +56,12 @@ export class Router {
         // Wrap handler with schema validation if provided
         const wrappedHandler = schema ? this.wrapWithValidation(handler, schema) : handler;
 
-        tree.insert(path, wrappedHandler, middlewares);
+        tree.insert(fullPath, wrappedHandler, middlewares);
 
         // Store for introspection (including schema and meta for documentation)
         this.routes.push({
             method,
-            path,
+            path: fullPath,
             config: { handler: wrappedHandler, middlewares, schema, meta }
         });
     }
@@ -95,6 +98,48 @@ export class Router {
             schema: r.config.schema,
             meta: r.config.meta
         }));
+    }
+
+    /**
+     * Get raw route configs for merging into Application
+     */
+    getRawRoutes(): Array<{ method: HTTPMethod; path: string; config: RouteEntry }> {
+        return this.routes;
+    }
+
+    /**
+     * Get internal radix trees for merging
+     */
+    getTrees(): Map<HTTPMethod, RadixTree> {
+        return this.trees;
+    }
+
+    /**
+     * Mount another router with a prefix (group routes)
+     * 
+     * @example
+     * ```typescript
+     * const userRoutes = new Router();
+     * userRoutes.get('/', getAllUsers);
+     * userRoutes.get('/:id', getUserById);
+     * 
+     * const router = new Router();
+     * router.group('/api/users', userRoutes);
+     * ```
+     */
+    group(prefix: string, router: Router): void {
+        const routes = router.getRawRoutes();
+        for (const route of routes) {
+            const fullPath = `${prefix}${route.path}`;
+            this.addRoute({
+                method: route.method,
+                path: fullPath,
+                handler: route.config.handler,
+                middlewares: route.config.middlewares,
+                schema: route.config.schema,
+                meta: route.config.meta
+            });
+        }
     }
 
     /**
