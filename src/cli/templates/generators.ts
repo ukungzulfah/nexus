@@ -149,47 +149,50 @@ export const ${middlewareName}Middleware: Middleware = async (ctx: Context, next
 @Controller('/${baseName}')
 export class ${className} {
   @Get('/')
-  async getAll(ctx: Context) {
-    return ctx.json({
+  async getAll() {
+    return {
       message: 'Get all ${baseName}',
       data: [],
-    });
+    };
   }
 
   @Get('/:id')
   async getById(ctx: Context) {
     const { id } = ctx.params;
-    return ctx.json({
+    return {
       message: \`Get ${baseName} by id: \${id}\`,
       data: null,
-    });
+    };
   }
 
   @Post('/')
   async create(ctx: Context) {
     const body = await ctx.body();
-    return ctx.json({
-      message: 'Create ${baseName}',
-      data: body,
-    }, 201);
+    return {
+      status: 201,
+      data: {
+        message: 'Create ${baseName}',
+        data: body,
+      },
+    };
   }
 
   @Put('/:id')
   async update(ctx: Context) {
     const { id } = ctx.params;
     const body = await ctx.body();
-    return ctx.json({
+    return {
       message: \`Update ${baseName}: \${id}\`,
       data: body,
-    });
+    };
   }
 
   @Delete('/:id')
   async delete(ctx: Context) {
     const { id } = ctx.params;
-    return ctx.json({
+    return {
       message: \`Delete ${baseName}: \${id}\`,
-    });
+    };
   }
 }
 `;

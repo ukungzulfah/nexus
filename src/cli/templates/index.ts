@@ -271,18 +271,18 @@ app.listen(PORT, () => {
 
 export const routes = new Router();
 
-routes.get('/', async (ctx) => {
-  return ctx.json({
+routes.get('/', async () => {
+  return {
     message: 'Welcome to Nexus!',
     version: '1.0.0',
-  });
+  };
 });
 
-routes.get('/health', async (ctx) => {
-  return ctx.json({
+routes.get('/health', async () => {
+  return {
     status: 'ok',
     timestamp: new Date().toISOString(),
-  });
+  };
 });
 `;
   }
@@ -320,21 +320,21 @@ import { userRoutes } from './users';
 export const routes = new Router();
 
 // Health check
-routes.get('/health', async (ctx) => {
-  return ctx.json({
+routes.get('/health', async () => {
+  return {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-  });
+  };
 });
 
 // API info
-routes.get('/api', async (ctx) => {
-  return ctx.json({
+routes.get('/api', async () => {
+  return {
     name: 'API',
     version: '1.0.0',
     endpoints: ['/api/users', '/health'],
-  });
+  };
 });
 
 // Mount user routes
@@ -343,7 +343,7 @@ routes.group('/api/users', userRoutes);
   }
 
   private getUserRoutes(): string {
-    return `import { Router } from '@engjts/nexus';
+    return `import { Router, HttpError } from '@engjts/nexus';
 import { UserService } from '../services/user.service';
 import { createUserSchema, updateUserSchema } from '../validators/user.validator';
 
@@ -351,9 +351,9 @@ export const userRoutes = new Router();
 const userService = new UserService();
 
 // GET /api/users
-userRoutes.get('/', async (ctx) => {
+userRoutes.get('/', async () => {
   const users = await userService.findAll();
-  return ctx.json({ users });
+  return { users };
 });
 
 // GET /api/users/:id
@@ -362,10 +362,10 @@ userRoutes.get('/:id', async (ctx) => {
   const user = await userService.findById(id);
   
   if (!user) {
-    return ctx.json({ error: 'User not found' }, 404);
+    throw new HttpError(404, 'User not found');
   }
   
-  return ctx.json({ user });
+  return { user };
 });
 
 // POST /api/users
@@ -374,7 +374,7 @@ userRoutes.post('/', async (ctx) => {
   const validated = createUserSchema.parse(body);
   
   const user = await userService.create(validated);
-  return ctx.json({ user }, 201);
+  return { status: 201, data: { user } };
 });
 
 // PUT /api/users/:id
@@ -386,10 +386,10 @@ userRoutes.put('/:id', async (ctx) => {
   const user = await userService.update(id, validated);
   
   if (!user) {
-    return ctx.json({ error: 'User not found' }, 404);
+    throw new HttpError(404, 'User not found');
   }
   
-  return ctx.json({ user });
+  return { user };
 });
 
 // DELETE /api/users/:id
@@ -398,22 +398,22 @@ userRoutes.delete('/:id', async (ctx) => {
   const deleted = await userService.delete(id);
   
   if (!deleted) {
-    return ctx.json({ error: 'User not found' }, 404);
+    throw new HttpError(404, 'User not found');
   }
   
-  return ctx.json({ message: 'User deleted successfully' });
+  return { message: 'User deleted successfully' };
 });
 `;
   }
 
   private getAuthMiddleware(): string {
-    return `import { Middleware, Context } from '@engjts/nexus';
+    return `import { Middleware, Context, HttpError } from '@engjts/nexus';
 
 export const authMiddleware: Middleware = async (ctx: Context, next) => {
   const authHeader = ctx.headers.get('authorization');
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return ctx.json({ error: 'Unauthorized' }, 401);
+    throw new HttpError(401, 'Unauthorized');
   }
   
   const token = authHeader.slice(7);
@@ -425,7 +425,7 @@ export const authMiddleware: Middleware = async (ctx: Context, next) => {
     
     return next();
   } catch (error) {
-    return ctx.json({ error: 'Invalid token' }, 401);
+    throw new HttpError(401, 'Invalid token');
   }
 };
 `;
