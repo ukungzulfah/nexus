@@ -1,0 +1,53 @@
+# Source files (hanya publish dist)
+src/
+
+# Documentation (tidak perlu di npm)
+documentation/
+modern_framework_paper.md
+BENCHMARK_REPORT.md
+
+# Public folder (untuk demo/testing saja)
+public/
+
+# Development files
+*.ts
+!*.d.ts
+tsconfig.json
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+coverage/
+.nyc_output/
+
+# Build tools
+.eslintrc*
+.prettierrc*
+prettier.config.*
+eslint.config.*
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*
+.env
+.env.*
+
+# Node
+node_modules/
+
+# Examples
+examples/
