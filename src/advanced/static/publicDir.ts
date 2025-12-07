@@ -6,8 +6,8 @@ import { serveStatic } from './serveStatic';
  *
  * @example
  * ```typescript
- * app.feature(publicDir());           // ./public
- * app.feature(publicDir('./assets')); // ./assets
+ * app.plugin(publicDir());           // ./public
+ * app.plugin(publicDir('./assets')); // ./assets
  * ```
  */
 

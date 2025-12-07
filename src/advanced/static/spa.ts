@@ -7,8 +7,8 @@ import { serveStatic } from './serveStatic';
  *
  * @example
  * ```typescript
- * app.feature(spa());           // SPA from ./public
- * app.feature(spa('./dist'));   // SPA from ./dist
+ * app.plugin(spa());           // SPA from ./public
+ * app.plugin(spa('./dist'));   // SPA from ./dist
  * ```
  */
 

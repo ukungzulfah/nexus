@@ -642,10 +642,10 @@ import { registerRoutes } from './routes';
 
 const app = createApp({ debug: true });
 
-// Features
-app.feature(swagger());
-app.feature(postman());
-app.feature(playground());
+// Plugins
+app.plugin(swagger());
+app.plugin(postman());
+app.plugin(playground());
 
 // Register all routes
 registerRoutes(app);
@@ -826,9 +826,9 @@ Class-based routes **otomatis terintegrasi** dengan:
 ```typescript
 const app = createApp();
 
-app.feature(swagger());
-app.feature(postman());
-app.feature(playground());
+app.plugin(swagger());
+app.plugin(postman());
+app.plugin(playground());
 
 // Routes akan muncul di Swagger, Postman, dan Playground
 app.post(new RegisterRoute());

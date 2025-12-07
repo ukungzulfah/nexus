@@ -9,10 +9,10 @@
  * const app = createApp();
  * 
  * // Zero config - just works!
- * app.feature(swagger());
+ * app.plugin(swagger());
  * 
  * // With config
- * app.feature(swagger({
+ * app.plugin(swagger({
  *   path: '/docs',
  *   info: { title: 'My API', version: '1.0.0' }
  * }));

@@ -9,10 +9,10 @@
  * const app = createApp();
  * 
  * // Zero config
- * app.feature(postman());
+ * app.plugin(postman());
  * 
  * // With config
- * app.feature(postman({
+ * app.plugin(postman({
  *   path: '/postman',
  *   name: 'My API',
  *   baseUrl: 'http://localhost:3000'

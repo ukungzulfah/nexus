@@ -31,19 +31,19 @@ export class AddCommand implements Command {
     playground: {
       name: 'playground',
       import: 'playground',
-      feature: 'playground()',
+      feature: 'plugin(playground())',
       description: 'Interactive API playground at /playground',
     },
     postman: {
       name: 'postman',
       import: 'postman',
-      feature: 'postman()',
+      feature: 'plugin(postman())',
       description: 'Postman collection export at /postman',
     },
     swagger: {
       name: 'swagger',
       import: 'swagger',
-      feature: 'swagger()',
+      feature: 'plugin(swagger())',
       description: 'Swagger/OpenAPI documentation at /docs',
     },
   };
@@ -84,7 +84,7 @@ export class AddCommand implements Command {
     let content = await FileSystem.readFile(fullPath);
 
     // Check if plugin is already added
-    if (content.includes(`app.feature(${config.feature})`)) {
+    if (content.includes(`app.plugin(${config.feature})`)) {
       this.logger.info(`Plugin "${plugin}" is already added to your project`);
       return;
     }
@@ -105,25 +105,25 @@ export class AddCommand implements Command {
       content = `import { ${config.import} } from '@engjts/nexus';\n${content}`;
     }
 
-    // Find where to add app.feature()
-    // Look for existing app.feature() calls or app.use() calls
-    const featurePattern = /app\.feature\([^)]+\);?\n?/g;
+    // Find where to add app.plugin()
+    // Look for existing app.plugin() calls or app.use() calls
+    const pluginPattern = /app\.plugin\([^)]+\);?\n?/g;
     const usePattern = /app\.use\([^)]+\);?\n?/;
     const listenPattern = /app\.listen\(/;
 
     let insertPosition = -1;
-    let insertText = `app.feature(${config.feature});\n`;
+    let insertText = `app.plugin(${config.feature});\n`;
 
-    // Find last app.feature() call
-    let lastFeatureMatch: RegExpExecArray | null = null;
+    // Find last app.plugin() call
+    let lastPluginMatch: RegExpExecArray | null = null;
     let match;
-    while ((match = featurePattern.exec(content)) !== null) {
-      lastFeatureMatch = match;
+    while ((match = pluginPattern.exec(content)) !== null) {
+      lastPluginMatch = match;
     }
 
-    if (lastFeatureMatch) {
-      // Insert after last feature
-      insertPosition = lastFeatureMatch.index + lastFeatureMatch[0].length;
+    if (lastPluginMatch) {
+      // Insert after last plugin
+      insertPosition = lastPluginMatch.index + lastPluginMatch[0].length;
     } else {
       // Find app.use() or app.listen()
       const useMatch = content.match(usePattern);
@@ -132,21 +132,21 @@ export class AddCommand implements Command {
       if (useMatch && useMatch.index !== undefined) {
         // Insert before first app.use()
         insertPosition = useMatch.index;
-        insertText = `// Features\napp.feature(${config.feature});\n\n`;
+        insertText = `// Plugins\napp.plugin(${config.feature});\n\n`;
       } else if (listenMatch && listenMatch.index !== undefined) {
         // Insert before app.listen()
         insertPosition = listenMatch.index;
-        insertText = `// Features\napp.feature(${config.feature});\n\n`;
+        insertText = `// Plugins\napp.plugin(${config.feature});\n\n`;
       }
     }
 
     if (insertPosition === -1) {
       this.logger.error('Could not find a suitable location to add the plugin');
-      this.logger.info('Please add manually: app.feature(' + config.feature + ')');
+      this.logger.info('Please add manually: app.plugin(' + config.feature + ')');
       return;
     }
 
-    // Insert the feature call
+    // Insert the plugin call
     content = content.slice(0, insertPosition) + insertText + content.slice(insertPosition);
 
     // Write back

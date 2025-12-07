@@ -14,10 +14,10 @@ import { SwaggerConfig, StoredRoute, OpenAPISchema, SwaggerApplication } from '.
  * @example
  * ```typescript
  * // Minimal setup - auto-detects everything
- * app.feature(swagger());
+ * app.plugin(swagger());
  *
  * // With custom info
- * app.feature(swagger({
+ * app.plugin(swagger({
  *   info: {
  *     title: 'My Awesome API',
  *     version: '2.0.0',
@@ -26,7 +26,7 @@ import { SwaggerConfig, StoredRoute, OpenAPISchema, SwaggerApplication } from '.
  * }));
  *
  * // Full configuration
- * app.feature(swagger({
+ * app.plugin(swagger({
  *   path: '/api-docs',
  *   specPath: '/swagger.json',
  *   theme: 'dark',

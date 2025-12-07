@@ -10,13 +10,13 @@
  * const app = createApp();
  * 
  * // Basic usage - serve from ./public
- * app.feature(serveStatic());
+ * app.plugin(serveStatic());
  * 
  * // Custom directory
- * app.feature(serveStatic({ root: './assets' }));
+ * app.plugin(serveStatic({ root: './assets' }));
  * 
  * // With prefix
- * app.feature(serveStatic({ 
+ * app.plugin(serveStatic({ 
  *   root: './public',
  *   prefix: '/static'  // /static/image.png → ./public/image.png
  * }));
