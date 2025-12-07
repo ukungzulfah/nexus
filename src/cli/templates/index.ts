@@ -63,10 +63,12 @@ export class ProjectTemplates {
     const dependencies: Record<string, string> = {
       '@engjts/nexus': '^0.1.0',
       zod: '^3.22.4',
+      ws: '^8.16.0',
     };
 
     const devDependencies: Record<string, string> = {
       '@types/node': '^20.10.0',
+      '@types/ws': '^8.18.1',
       typescript: '^5.3.3',
       tsx: '^4.7.0',
     };

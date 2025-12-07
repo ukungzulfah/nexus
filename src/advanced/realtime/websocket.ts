@@ -1,7 +1,19 @@
 import { IncomingMessage, Server as HTTPServer } from 'http';
 import { parse as parseUrl } from 'url';
 import { EventEmitter } from 'events';
-import WebSocket, { WebSocketServer } from 'ws';
+
+let WebSocket: any;
+let WebSocketServer: any;
+let RawData: any;
+
+try {
+    const wsModule = require('ws');
+    WebSocket = wsModule.default || wsModule;
+    WebSocketServer = wsModule.WebSocketServer;
+    RawData = wsModule.RawData;
+} catch (error) {
+    // ws module not installed
+}
 
 export interface WebSocketContext {
     path: string;
@@ -38,10 +50,10 @@ export interface ConnectionState {
  */
 export class WebSocketGateway extends EventEmitter {
     private routes: Map<string, WebSocketRoute> = new Map();
-    private wss?: WebSocketServer;
-    private connections: WeakMap<WebSocket, ConnectionState> = new WeakMap();
-    private rooms: Map<string, Set<WebSocket>> = new Map();
-    private socketRooms: WeakMap<WebSocket, Set<string>> = new WeakMap();
+    private wss?: any;
+    private connections: WeakMap<any, ConnectionState> = new WeakMap();
+    private rooms: Map<string, Set<any>> = new Map();
+    private socketRooms: WeakMap<any, Set<string>> = new WeakMap();
 
     register(path: string, config: WebSocketRouteConfig) {
         if (!path.startsWith('/')) {
@@ -53,6 +65,14 @@ export class WebSocketGateway extends EventEmitter {
     attach(server: HTTPServer) {
         if (this.wss) {
             return;
+        }
+
+        if (!WebSocketServer) {
+            throw new Error(
+                'WebSocket support requires the "ws" package to be installed.\n' +
+                'Install it with: npm install ws\n' +
+                'Or if using the CLI: nexus create my-app --skip-install && npm install'
+            );
         }
 
         this.wss = new WebSocketServer({ noServer: true });
@@ -117,11 +137,11 @@ export class WebSocketGateway extends EventEmitter {
         joinedRooms?.delete(room);
     }
 
-    private bindConnection(socket: WebSocket, route: WebSocketRoute, ctx: WebSocketContext) {
+    private bindConnection(socket: any, route: WebSocketRoute, ctx: WebSocketContext) {
         this.connections.set(socket, { ctx, route });
         this.emit('connection', socket, ctx);
 
-        socket.on('message', async (data: WebSocket.RawData) => {
+        socket.on('message', async (data: any) => {
             try {
                 const payload = this.parseMessage(data);
                 await route.onMessage?.(socket, payload, ctx);
@@ -161,7 +181,7 @@ export class WebSocketGateway extends EventEmitter {
         };
     }
 
-    private parseMessage(data: WebSocket.RawData): any {
+    private parseMessage(data: any): any {
         if (Buffer.isBuffer(data) || data instanceof ArrayBuffer) {
             const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
             const stringPayload = buffer.toString('utf-8');
@@ -173,7 +193,7 @@ export class WebSocketGateway extends EventEmitter {
         }
 
         if (Array.isArray(data)) {
-            return data.map((item): any => this.parseMessage(item as WebSocket.RawData));
+            return data.map((item): any => this.parseMessage(item));
         }
 
         // Handle string case
@@ -184,7 +204,7 @@ export class WebSocketGateway extends EventEmitter {
         }
     }
 
-    private cleanupSocket(socket: WebSocket) {
+    private cleanupSocket(socket: any) {
         const rooms = this.socketRooms.get(socket);
         if (rooms) {
             for (const room of rooms) {
