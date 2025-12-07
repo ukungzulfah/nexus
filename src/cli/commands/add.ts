@@ -31,19 +31,19 @@ export class AddCommand implements Command {
     playground: {
       name: 'playground',
       import: 'playground',
-      feature: 'plugin(playground())',
+      feature: 'playground()',
       description: 'Interactive API playground at /playground',
     },
     postman: {
       name: 'postman',
       import: 'postman',
-      feature: 'plugin(postman())',
+      feature: 'postman()',
       description: 'Postman collection export at /postman',
     },
     swagger: {
       name: 'swagger',
       import: 'swagger',
-      feature: 'plugin(swagger())',
+      feature: 'swagger()',
       description: 'Swagger/OpenAPI documentation at /docs',
     },
   };
