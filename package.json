@@ -1,0 +1,178 @@
+{
+  "name": "@engjts/nexus",
+  "version": "0.1.0",
+  "description": "Nexus framework async-first web framework with type-safety and security built-in",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "nexus": "./dist/cli/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "require": "./dist/core/index.js"
+    },
+    "./database": {
+      "types": "./dist/database/index.d.ts",
+      "import": "./dist/database/index.js",
+      "require": "./dist/database/index.js"
+    },
+    "./graphql": {
+      "types": "./dist/advanced/graphql/index.d.ts",
+      "import": "./dist/advanced/graphql/index.js",
+      "require": "./dist/advanced/graphql/index.js"
+    },
+    "./cache": {
+      "types": "./dist/advanced/cache/index.d.ts",
+      "import": "./dist/advanced/cache/index.js",
+      "require": "./dist/advanced/cache/index.js"
+    },
+    "./jobs": {
+      "types": "./dist/advanced/jobs/index.d.ts",
+      "import": "./dist/advanced/jobs/index.js",
+      "require": "./dist/advanced/jobs/index.js"
+    },
+    "./sentry": {
+      "types": "./dist/advanced/sentry/index.d.ts",
+      "import": "./dist/advanced/sentry/index.js",
+      "require": "./dist/advanced/sentry/index.js"
+    },
+    "./realtime": {
+      "types": "./dist/advanced/realtime/index.d.ts",
+      "import": "./dist/advanced/realtime/index.js",
+      "require": "./dist/advanced/realtime/index.js"
+    },
+    "./testing": {
+      "types": "./dist/advanced/testing/index.d.ts",
+      "import": "./dist/advanced/testing/index.js",
+      "require": "./dist/advanced/testing/index.js"
+    },
+    "./security": {
+      "types": "./dist/security/index.d.ts",
+      "import": "./dist/security/index.js",
+      "require": "./dist/security/index.js"
+    },
+    "./deployment": {
+      "types": "./dist/deployment/index.d.ts",
+      "import": "./dist/deployment/index.js",
+      "require": "./dist/deployment/index.js"
+    },
+    "./swagger": {
+      "types": "./dist/advanced/swagger/index.d.ts",
+      "import": "./dist/advanced/swagger/index.js",
+      "require": "./dist/advanced/swagger/index.js"
+    },
+    "./postman": {
+      "types": "./dist/advanced/postman/index.d.ts",
+      "import": "./dist/advanced/postman/index.js",
+      "require": "./dist/advanced/postman/index.js"
+    },
+    "./playground": {
+      "types": "./dist/advanced/playground/index.d.ts",
+      "import": "./dist/advanced/playground/index.js",
+      "require": "./dist/advanced/playground/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "core": [
+        "dist/core/index.d.ts"
+      ],
+      "database": [
+        "dist/database/index.d.ts"
+      ],
+      "graphql": [
+        "dist/advanced/graphql/index.d.ts"
+      ],
+      "cache": [
+        "dist/advanced/cache/index.d.ts"
+      ],
+      "jobs": [
+        "dist/advanced/jobs/index.d.ts"
+      ],
+      "sentry": [
+        "dist/advanced/sentry/index.d.ts"
+      ],
+      "realtime": [
+        "dist/advanced/realtime/index.d.ts"
+      ],
+      "testing": [
+        "dist/advanced/testing/index.d.ts"
+      ],
+      "security": [
+        "dist/security/index.d.ts"
+      ],
+      "deployment": [
+        "dist/deployment/index.d.ts"
+      ],
+      "swagger": [
+        "dist/advanced/swagger/index.d.ts"
+      ],
+      "postman": [
+        "dist/advanced/postman/index.d.ts"
+      ],
+      "playground": [
+        "dist/advanced/playground/index.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "test": "jest",
+    "benchmark": "ts-node benchmarks/index.ts",
+    "nexus": "ts-node src/cli/bin.ts",
+    "postbuild": "chmod +x dist/cli/bin.js"
+  },
+  "keywords": [
+    "framework",
+    "web",
+    "async",
+    "typescript",
+    "http",
+    "server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "mysql2": "^3.15.3",
+    "zod": "^3.22.4"
+  },
+  "peerDependencies": {
+    "graphql": "^16.0.0",
+    "ioredis": "^5.0.0",
+    "ws": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "graphql": {
+      "optional": true
+    },
+    "ws": {
+      "optional": true
+    },
+    "ioredis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.18.1",
+    "graphql": "^16.8.1",
+    "ioredis": "^5.3.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
