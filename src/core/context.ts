@@ -4,7 +4,6 @@
  */
 
 import { IncomingMessage, ServerResponse } from 'http';
-import { parse as parseUrl } from 'url';
 import { parse as parseQueryString } from 'querystring';
 import {
     Context,
@@ -75,11 +74,22 @@ class CookieManager implements Cookies {
 }
 
 /**
+ * Pre-cached headers for common content types
+ * This avoids object creation on every response
+ */
+const CACHED_HEADERS = {
+    JSON: { 'Content-Type': 'application/json' } as Headers,
+    HTML: { 'Content-Type': 'text/html; charset=utf-8' } as Headers,
+    TEXT: { 'Content-Type': 'text/plain; charset=utf-8' } as Headers,
+};
+
+/**
  * Response builder implementation
  */
 class ResponseBuilderImpl implements ResponseBuilder {
     private _status: number = 200;
     private _headers: Headers = {};
+    private _hasCustomHeaders: boolean = false;
 
     status(code: number): ResponseBuilder {
         this._status = code;
@@ -88,16 +98,16 @@ class ResponseBuilderImpl implements ResponseBuilder {
 
     header(name: string, value: string): ResponseBuilder {
         this._headers[name] = value;
+        this._hasCustomHeaders = true;
         return this;
     }
 
     json<T>(data: T): Response {
         return {
             statusCode: this._status,
-            headers: {
-                ...this._headers,
-                'Content-Type': 'application/json'
-            },
+            headers: this._hasCustomHeaders 
+                ? { ...this._headers, 'Content-Type': 'application/json' }
+                : CACHED_HEADERS.JSON,
             body: JSON.stringify(data)
         };
     }
@@ -105,10 +115,9 @@ class ResponseBuilderImpl implements ResponseBuilder {
     html(content: string): Response {
         return {
             statusCode: this._status,
-            headers: {
-                ...this._headers,
-                'Content-Type': 'text/html; charset=utf-8'
-            },
+            headers: this._hasCustomHeaders 
+                ? { ...this._headers, 'Content-Type': 'text/html; charset=utf-8' }
+                : CACHED_HEADERS.HTML,
             body: content
         };
     }
@@ -116,10 +125,9 @@ class ResponseBuilderImpl implements ResponseBuilder {
     text(content: string): Response {
         return {
             statusCode: this._status,
-            headers: {
-                ...this._headers,
-                'Content-Type': 'text/plain; charset=utf-8'
-            },
+            headers: this._hasCustomHeaders 
+                ? { ...this._headers, 'Content-Type': 'text/plain; charset=utf-8' }
+                : CACHED_HEADERS.TEXT,
             body: content
         };
     }
@@ -127,10 +135,9 @@ class ResponseBuilderImpl implements ResponseBuilder {
     redirect(url: string, status: number = 302): Response {
         return {
             statusCode: status,
-            headers: {
-                ...this._headers,
-                'Location': url
-            },
+            headers: this._hasCustomHeaders 
+                ? { ...this._headers, 'Location': url }
+                : { 'Location': url },
             body: ''
         };
     }
@@ -143,6 +150,36 @@ class ResponseBuilderImpl implements ResponseBuilder {
             stream: readable
         };
     }
+    
+    /**
+     * Reset for reuse (object pooling)
+     */
+    reset(): void {
+        this._status = 200;
+        this._headers = {};
+        this._hasCustomHeaders = false;
+    }
+}
+
+/**
+ * Reusable response builder pool
+ */
+const responseBuilderPool: ResponseBuilderImpl[] = [];
+const RESPONSE_BUILDER_POOL_SIZE = 100;
+
+function acquireResponseBuilder(): ResponseBuilderImpl {
+    if (responseBuilderPool.length > 0) {
+        const builder = responseBuilderPool.pop()!;
+        builder.reset();
+        return builder;
+    }
+    return new ResponseBuilderImpl();
+}
+
+function releaseResponseBuilder(builder: ResponseBuilderImpl): void {
+    if (responseBuilderPool.length < RESPONSE_BUILDER_POOL_SIZE) {
+        responseBuilderPool.push(builder);
+    }
 }
 
 /**
@@ -151,23 +188,30 @@ class ResponseBuilderImpl implements ResponseBuilder {
 export class ContextImpl implements Context {
     method: HTTPMethod;
     path: string;
-    url: URL;
+    private _url: URL | null = null;  // Lazy URL creation
+    private _host: string = 'localhost';
     params: Record<string, string> = {};
-    query: Record<string, any> = {};
-    body: any = null;
+    private _query: Record<string, any> | null = null;  // Lazy query parsing
+    private _queryString: string = '';  // Raw query string for lazy parsing
     headers: Headers;
-    cookies: Cookies;
+    private _cookieHeader: string | undefined;
+    private _cookies: CookieManager | null = null;  // Lazy cookie parsing
     raw: { req: IncomingMessage; res: ServerResponse };
     response: ResponseBuilder;
+    
+    // Lazy body parsing - key optimization!
+    private _parsedBody: any = undefined;
+    private _bodyPromise: Promise<any> | null = null;
+    private _bodyParsed: boolean = false;
     
     // Store registry reference (set by Application)
     private _storeRegistry?: StoreRegistry;
     
-    // Request-scoped store registry (created per request)
-    private _requestStoreRegistry: RequestStoreRegistry;
+    // Request-scoped store registry - now lazy!
+    private _requestStoreRegistry: RequestStoreRegistry | null = null;
     
-    // Request-scoped simple key-value storage
-    private _data: Map<string, any> = new Map();
+    // Request-scoped simple key-value storage - now lazy!
+    private _data: Map<string, any> | null = null;
     
     // Debug mode
     private _debug: boolean = false;
@@ -175,26 +219,370 @@ export class ContextImpl implements Context {
     constructor(req: IncomingMessage, res: ServerResponse) {
         this.raw = { req, res };
 
-        // Parse method
-        this.method = (req.method?.toUpperCase() || 'GET') as HTTPMethod;
+        // Parse method - use direct access, avoid optional chaining overhead
+        this.method = (req.method ? req.method.toUpperCase() : 'GET') as HTTPMethod;
 
-        // Parse URL and query
-        const parsedUrl = parseUrl(req.url || '/', true);
-        this.path = parsedUrl.pathname || '/';
-        this.url = new URL(this.path, `http://${req.headers.host || 'localhost'}`);
-        this.query = parsedUrl.query as Record<string, any>;
+        // Fast URL parsing - just extract path, delay query parsing
+        const url = req.url || '/';
+        const queryIndex = url.indexOf('?');
+        
+        if (queryIndex === -1) {
+            this.path = url;
+            this._queryString = '';
+            this._query = null;  // Will be {} when accessed
+        } else {
+            this.path = url.substring(0, queryIndex);
+            // Store query string for lazy parsing
+            this._queryString = url.substring(queryIndex + 1);
+            this._query = null;  // Parse lazily
+        }
+        
+        // Store host for lazy URL creation
+        this._host = (req.headers.host as string) || 'localhost';
+        
+        // URL is now lazy - don't create here!
+        this._url = null;
 
-        // Parse headers
+        // Parse headers (direct reference, no copy)
         this.headers = req.headers as Headers;
 
-        // Parse cookies
-        this.cookies = new CookieManager(req.headers.cookie);
+        // Store cookie header for lazy parsing
+        this._cookieHeader = req.headers.cookie;
+        this._cookies = null;
 
-        // Create response builder
-        this.response = new ResponseBuilderImpl();
+        // Get response builder from pool
+        this.response = acquireResponseBuilder();
+    }
+
+    /**
+     * Lazy URL getter - only create URL object when accessed
+     * Most handlers don't need the full URL object
+     */
+    get url(): URL {
+        if (!this._url) {
+            this._url = new URL(this.path, `http://${this._host}`);
+        }
+        return this._url;
+    }
+
+    set url(value: URL) {
+        this._url = value;
+    }
+
+    /**
+     * Lazy query getter - only parse query string when accessed
+     * Most simple endpoints like /json don't need query parsing
+     */
+    get query(): Record<string, any> {
+        if (this._query === null) {
+            this._query = this._queryString 
+                ? this.parseQueryStringFast(this._queryString)
+                : {};
+        }
+        return this._query;
+    }
+
+    set query(value: Record<string, any>) {
+        this._query = value;
+    }
+
+    /**
+     * Lazy cookies getter - only parse cookies when accessed
+     */
+    get cookies(): Cookies {
+        if (!this._cookies) {
+            this._cookies = new CookieManager(this._cookieHeader);
+        }
+        return this._cookies;
+    }
+
+    set cookies(value: Cookies) {
+        this._cookies = value as CookieManager;
+    }
+
+    /**
+     * Decode URI component only if needed (has encoded chars)
+     * This is a performance optimization - indexOf is much faster than decodeURIComponent
+     */
+    private decodeIfNeeded(str: string): string {
+        // Check for encoded characters: % (percent encoding) or + (space in form data)
+        if (str.indexOf('%') === -1 && str.indexOf('+') === -1) {
+            return str;  // Fast path: no decoding needed
+        }
+        // Replace + with space (form data encoding) then decode percent encoding
+        return decodeURIComponent(str.replace(/\+/g, ' '));
+    }
+
+    /**
+     * Fast query string parser - optimized for common cases
+     * Skips decodeURIComponent for simple ASCII strings (90% of cases)
+     */
+    private parseQueryStringFast(queryString: string): Record<string, any> {
+        if (!queryString) return {};
         
-        // Create request-scoped store registry
-        this._requestStoreRegistry = new RequestStoreRegistry(this._debug);
+        const result: Record<string, any> = {};
+        const pairs = queryString.split('&');
+        
+        for (let i = 0; i < pairs.length; i++) {
+            const pair = pairs[i];
+            const eqIndex = pair.indexOf('=');
+            
+            if (eqIndex === -1) {
+                // Key only, no value
+                result[this.decodeIfNeeded(pair)] = '';
+            } else {
+                const key = this.decodeIfNeeded(pair.substring(0, eqIndex));
+                const value = this.decodeIfNeeded(pair.substring(eqIndex + 1));
+                
+                // Handle array values (key[]=value or repeated keys)
+                if (result[key] !== undefined) {
+                    if (Array.isArray(result[key])) {
+                        result[key].push(value);
+                    } else {
+                        result[key] = [result[key], value];
+                    }
+                } else {
+                    result[key] = value;
+                }
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * Reinitialize context for pooling (avoids new object creation)
+     */
+    reinitialize(req: IncomingMessage, res: ServerResponse): void {
+        this.raw = { req, res };
+        this.method = (req.method ? req.method.toUpperCase() : 'GET') as HTTPMethod;
+        
+        // Fast URL parsing - delay query parsing
+        const url = req.url || '/';
+        const queryIndex = url.indexOf('?');
+        
+        if (queryIndex === -1) {
+            this.path = url;
+            this._queryString = '';
+            this._query = null;
+        } else {
+            this.path = url.substring(0, queryIndex);
+            this._queryString = url.substring(queryIndex + 1);
+            this._query = null;  // Parse lazily
+        }
+        
+        // Lazy URL - don't create here
+        this._host = (req.headers.host as string) || 'localhost';
+        this._url = null;
+        
+        this.headers = req.headers as Headers;
+        
+        // Lazy cookies
+        this._cookieHeader = req.headers.cookie;
+        this._cookies = null;
+        
+        // Reuse or get new response builder from pool
+        if (this.response && typeof (this.response as ResponseBuilderImpl).reset === 'function') {
+            (this.response as ResponseBuilderImpl).reset();
+        } else {
+            this.response = acquireResponseBuilder();
+        }
+        
+        // Reset body state
+        this._parsedBody = undefined;
+        this._bodyPromise = null;
+        this._bodyParsed = false;
+        
+        // Reset params
+        this.params = {};
+        
+        // Lazy data and store - just null them, create on access
+        if (this._data) {
+            this._data.clear();
+        }
+        this._requestStoreRegistry = null;
+    }
+
+    /**
+     * Lazy body getter - parses body on first access
+     * This is the KEY optimization that fixes POST performance!
+     */
+    get body(): any {
+        // If already parsed synchronously, return it
+        if (this._bodyParsed) {
+            return this._parsedBody;
+        }
+        
+        // Return undefined if not parsed yet
+        // Use getBody() for async access
+        return this._parsedBody;
+    }
+
+    /**
+     * Set body directly (for backwards compatibility)
+     */
+    set body(value: any) {
+        this._parsedBody = value;
+        this._bodyParsed = true;
+    }
+
+    /**
+     * Async body getter - use this in handlers for POST/PUT/PATCH
+     * @example
+     * ```typescript
+     * app.post('/data', async (ctx) => {
+     *   const body = await ctx.getBody();
+     *   return { received: body };
+     * });
+     * ```
+     */
+    async getBody<T = any>(): Promise<T> {
+        // Already parsed
+        if (this._bodyParsed) {
+            return this._parsedBody as T;
+        }
+        
+        // Already parsing (dedup concurrent calls)
+        if (this._bodyPromise) {
+            return this._bodyPromise as Promise<T>;
+        }
+        
+        // Start parsing with optimized parser
+        this._bodyPromise = this.parseBodyOptimized();
+        this._parsedBody = await this._bodyPromise;
+        this._bodyParsed = true;
+        this._bodyPromise = null;
+        
+        return this._parsedBody as T;
+    }
+
+    /**
+     * Ultra-optimized body parser inspired by Fastify's approach
+     * Key optimizations:
+     * 1. Pre-check content-type before reading data
+     * 2. Use direct string concatenation with setEncoding
+     * 3. Minimal closure allocation
+     * 4. Fast-path for JSON (most common case)
+     */
+    private parseBodyOptimized(): Promise<any> {
+        const req = this.raw.req;
+        const contentType = req.headers['content-type'];
+        
+        // Fast path: determine parser type once, before data collection
+        const isJSON = contentType ? contentType.charCodeAt(0) === 97 && contentType.startsWith('application/json') : false;
+        const isForm = !isJSON && contentType ? contentType.includes('x-www-form-urlencoded') : false;
+        
+        return new Promise((resolve, reject) => {
+            // Set encoding for string mode - avoids Buffer.toString() overhead
+            req.setEncoding('utf8');
+            
+            let body = '';
+            
+            const onData = (chunk: string) => {
+                body += chunk;
+            };
+            
+            const onEnd = () => {
+                // Cleanup listeners immediately
+                req.removeListener('data', onData);
+                req.removeListener('end', onEnd);
+                req.removeListener('error', onError);
+                
+                if (!body) {
+                    resolve({});
+                    return;
+                }
+                
+                try {
+                    if (isJSON) {
+                        resolve(JSON.parse(body));
+                    } else if (isForm) {
+                        resolve(this.parseQueryStringFast(body));
+                    } else {
+                        resolve(body);
+                    }
+                } catch (e) {
+                    reject(e);
+                }
+            };
+            
+            const onError = (err: Error) => {
+                req.removeListener('data', onData);
+                req.removeListener('end', onEnd);
+                req.removeListener('error', onError);
+                reject(err);
+            };
+            
+            req.on('data', onData);
+            req.on('end', onEnd);
+            req.on('error', onError);
+        });
+    }
+
+    /**
+     * Internal body parser - optimized for performance
+     * Uses string accumulation instead of Buffer.concat for better perf
+     * @deprecated Use parseBodyOptimized instead
+     */
+    private parseBodyInternal(): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const req = this.raw.req;
+            const contentType = req.headers['content-type'] || '';
+            
+            // Use setEncoding to get strings directly - faster than Buffer.toString()
+            req.setEncoding('utf8');
+            
+            let body = '';
+            
+            req.on('data', (chunk: string) => {
+                body += chunk;
+            });
+            
+            req.on('end', () => {
+                if (!body) {
+                    resolve({});
+                    return;
+                }
+                
+                try {
+                    // Inline content type check for hot path (JSON)
+                    if (contentType.includes('application/json')) {
+                        resolve(JSON.parse(body));
+                    } else if (contentType.includes('application/x-www-form-urlencoded')) {
+                        resolve(this.parseQueryStringFast(body));
+                    } else {
+                        resolve(body);
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            
+            req.on('error', reject);
+        });
+    }
+
+    /**
+     * Parse body based on content type
+     */
+    private parseContentType(body: string, contentType: string): any {
+        if (contentType.includes('application/json')) {
+            return body ? JSON.parse(body) : {};
+        } else if (contentType.includes('application/x-www-form-urlencoded')) {
+            return this.parseQueryStringFast(body);
+        } else if (contentType.includes('text/')) {
+            return body;
+        }
+        return body;
+    }
+
+    /**
+     * Clear body state (for pooling)
+     */
+    clearBody(): void {
+        this._parsedBody = undefined;
+        this._bodyPromise = null;
+        this._bodyParsed = false;
     }
 
     // Convenience methods
@@ -253,6 +641,26 @@ export class ContextImpl implements Context {
     }
 
     /**
+     * Lazy getter for request store registry
+     */
+    private getOrCreateRequestStoreRegistry(): RequestStoreRegistry {
+        if (!this._requestStoreRegistry) {
+            this._requestStoreRegistry = new RequestStoreRegistry(this._debug);
+        }
+        return this._requestStoreRegistry;
+    }
+
+    /**
+     * Lazy getter for request data map
+     */
+    private getOrCreateData(): Map<string, any> {
+        if (!this._data) {
+            this._data = new Map();
+        }
+        return this._data;
+    }
+
+    /**
      * Access a request-scoped store by its class
      * Store only exists for this request, disposed after response
      * 
@@ -281,7 +689,7 @@ export class ContextImpl implements Context {
      * ```
      */
     requestStore<T extends RequestStore<any>>(StoreClass: RequestStoreConstructor<T>): T {
-        return this._requestStoreRegistry.get(StoreClass);
+        return this.getOrCreateRequestStoreRegistry().get(StoreClass);
     }
 
     /**
@@ -302,7 +710,7 @@ export class ContextImpl implements Context {
      * ```
      */
     set<T = any>(key: string, value: T): void {
-        this._data.set(key, value);
+        this.getOrCreateData().set(key, value);
     }
 
     /**
@@ -318,7 +726,7 @@ export class ContextImpl implements Context {
      * ```
      */
     get<T = any>(key: string): T | undefined {
-        return this._data.get(key) as T | undefined;
+        return this._data?.get(key) as T | undefined;
     }
 
     /**
@@ -335,8 +743,8 @@ export class ContextImpl implements Context {
      */
     setDebugMode(debug: boolean): void {
         this._debug = debug;
-        // Re-create request store registry with debug mode
-        this._requestStoreRegistry = new RequestStoreRegistry(debug);
+        // Reset request store registry - will be created lazily with new debug mode
+        this._requestStoreRegistry = null;
     }
 
     /**
@@ -344,8 +752,17 @@ export class ContextImpl implements Context {
      * @internal
      */
     disposeRequestStores(): void {
-        this._requestStoreRegistry.dispose();
-        this._data.clear();
+        if (this._requestStoreRegistry) {
+            this._requestStoreRegistry.dispose();
+            this._requestStoreRegistry = null;
+        }
+        if (this._data) {
+            this._data.clear();
+        }
+        // Release response builder back to pool
+        if (this.response && typeof (this.response as ResponseBuilderImpl).reset === 'function') {
+            releaseResponseBuilder(this.response as ResponseBuilderImpl);
+        }
     }
 
     /**
@@ -353,7 +770,7 @@ export class ContextImpl implements Context {
      * @internal
      */
     getRequestStoreRegistry(): RequestStoreRegistry {
-        return this._requestStoreRegistry;
+        return this.getOrCreateRequestStoreRegistry();
     }
 
     /**
@@ -364,22 +781,29 @@ export class ContextImpl implements Context {
     }
 
     /**
-     * Set request body (called after parsing)
+     * Set request body (called after parsing or by middleware)
+     * @deprecated Use ctx.getBody() for async body access
      */
     setBody(body: any): void {
-        this.body = body;
+        this._parsedBody = body;
+        this._bodyParsed = true;
     }
 
     /**
      * Get all Set-Cookie headers
      */
     getSetCookieHeaders(): string[] {
-        return (this.cookies as CookieManager).getSetCookieHeaders();
+        // Use _cookies directly to avoid creating CookieManager if not needed
+        if (!this._cookies) {
+            return [];
+        }
+        return this._cookies.getSetCookieHeaders();
     }
 }
 
 /**
  * Parse request body based on Content-Type
+ * @deprecated Use ctx.getBody() instead for lazy parsing
  */
 export async function parseBody(req: IncomingMessage): Promise<any> {
     return new Promise((resolve, reject) => {

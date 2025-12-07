@@ -38,8 +38,9 @@ export class ContextPool {
             this.created++;
         }
 
-        // Parse body if applicable
-        if (this.hasBody(req)) {
+        // Parse body if applicable (POST, PUT, PATCH)
+        const method = req.method;
+        if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
             const body = await parseBody(req);
             ctx.setBody(body);
         }
@@ -95,14 +96,6 @@ export class ContextPool {
                 delete (ctx as any)[key];
             }
         }
-    }
-
-    /**
-     * Check if request has a body
-     */
-    private hasBody(req: IncomingMessage): boolean {
-        const method = req.method?.toUpperCase();
-        return method === 'POST' || method === 'PUT' || method === 'PATCH';
     }
 
     /**
