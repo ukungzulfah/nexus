@@ -1,6 +1,6 @@
 {
   "name": "@engjts/nexus",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Nexus framework async-first web framework with type-safety and security built-in",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
