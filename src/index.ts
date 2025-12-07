@@ -9,7 +9,7 @@
 // =============================================================================
 
 // Application
-export { Application, createApp } from './core/application';
+export { Application, Application as Nexus, createApp } from './core/application';
 
 // Core types
 export * from './core/types';

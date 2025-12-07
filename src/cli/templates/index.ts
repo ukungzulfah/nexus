@@ -286,10 +286,9 @@ routes.get('/health', async (ctx) => {
   }
 
   private getApiEntry(): string {
-    return `import { Nexus } from '@engjts/nexus';
+    return `import { Nexus, errorHandler } from '@engjts/nexus';
 import { routes } from './routes';
 import { loggerMiddleware } from './middleware/logger';
-import { errorHandler } from '@engjts/nexus';
 
 const app = new Nexus();
 

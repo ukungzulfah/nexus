@@ -8,7 +8,7 @@
  */
 
 // Application
-export { Application, createApp } from './application';
+export { Application, Application as Nexus, createApp } from './application';
 
 // Core types
 export * from './types';
