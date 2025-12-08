@@ -273,6 +273,14 @@ export {
     type RedisClientLike
 } from './advanced/cache';
 
+// Template Engines
+export {
+    HandlebarsEngine,
+    EJSEngine,
+    PugEngine,
+    MustacheEngine
+} from './advanced/template';
+
 // =============================================================================
 // UTILITIES
 // =============================================================================

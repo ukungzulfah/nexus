@@ -100,18 +100,81 @@ export class Application<TDeps extends DependencyContainer = {}> {
         this.config = {
             contextPoolSize: 100,
             enableJIT: true,
+            enableRegexRoutes: false,
             debug: false,
             logRequests: true,
             ...config
         };
 
-        this.router = new Router();
+        this.router = new Router({ enableRegexRoutes: this.config.enableRegexRoutes });
         this.contextPool = new ContextPool(this.config.contextPoolSize);
         this.middlewareExecutor = new MiddlewareExecutor();
         this.errorHandler = config.onError || defaultErrorHandler;
         this.adapters = new AdapterRegistry();
         this.storeRegistry = new StoreRegistry({ debug: config.debug });
         this.pluginManager = new PluginManager(this, { debug: config.debug });
+        
+        // Auto-register template engines if enabled (lazy-loaded)
+        this.initializeTemplateEngines();
+    }
+    
+    /**
+     * Initialize template engines based on config (lazy-loaded on first use)
+     * @private
+     */
+    private initializeTemplateEngines(): void {
+        // Only register if explicitly enabled in config
+        if (this.config.handlebars) {
+            this.registerTemplateEngine('handlebars');
+        }
+        if (this.config.ejs) {
+            this.registerTemplateEngine('ejs');
+        }
+        if (this.config.pug) {
+            this.registerTemplateEngine('pug');
+        }
+        if (this.config.mustache) {
+            this.registerTemplateEngine('mustache');
+        }
+    }
+    
+    /**
+     * Register a template engine (lazy import)
+     * @private
+     */
+    private registerTemplateEngine(name: 'handlebars' | 'ejs' | 'pug' | 'mustache'): void {
+        try {
+            // Lazy import - only loaded when first used
+            const engines = require('../advanced/template/engines');
+            
+            if (name === 'handlebars' && engines.HandlebarsEngine) {
+                Route.registerEngine(engines.HandlebarsEngine);
+                if (this.config.debug) {
+                    console.log('✓ Handlebars template engine registered');
+                }
+            } else if (name === 'ejs' && engines.EJSEngine) {
+                Route.registerEngine(engines.EJSEngine);
+                if (this.config.debug) {
+                    console.log('✓ EJS template engine registered');
+                }
+            } else if (name === 'pug' && engines.PugEngine) {
+                Route.registerEngine(engines.PugEngine);
+                if (this.config.debug) {
+                    console.log('✓ Pug template engine registered');
+                }
+            } else if (name === 'mustache' && engines.MustacheEngine) {
+                Route.registerEngine(engines.MustacheEngine);
+                if (this.config.debug) {
+                    console.log('✓ Mustache template engine registered');
+                }
+            }
+        } catch (error) {
+            // Silently fail if template engines not found
+            // They'll get a better error message when actually trying to use them
+            if (this.config.debug) {
+                console.warn(`⚠ Template engine '${name}' could not be loaded:`, (error as Error).message);
+            }
+        }
     }
 
     /**

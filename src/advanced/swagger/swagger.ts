@@ -152,7 +152,18 @@ export function swagger(config: SwaggerConfig = {}): Plugin {
         const html = generateSwaggerUI(resolvedConfig);
         return {
           statusCode: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          headers: { 
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Security-Policy': [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com",
+              "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com",
+              "font-src 'self' https://cdn.jsdelivr.net https://unpkg.com data:",
+              "img-src 'self' data: https: blob:",
+              "connect-src 'self' *",
+              "worker-src 'self' blob:"
+            ].join('; ')
+          },
           body: html
         };
       });
@@ -162,7 +173,18 @@ export function swagger(config: SwaggerConfig = {}): Plugin {
         const html = generateSwaggerUI(resolvedConfig);
         return {
           statusCode: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          headers: { 
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Security-Policy': [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com",
+              "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com",
+              "font-src 'self' https://cdn.jsdelivr.net https://unpkg.com data:",
+              "img-src 'self' data: https: blob:",
+              "connect-src 'self' *",
+              "worker-src 'self' blob:"
+            ].join('; ')
+          },
           body: html
         };
       });

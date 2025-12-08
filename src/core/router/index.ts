@@ -27,19 +27,35 @@ export interface RouteEntry {
 }
 
 /**
+ * Router options
+ */
+export interface RouterOptions {
+  prefix?: string;
+  enableRegexRoutes?: boolean;
+}
+
+/**
  * Router class
  */
 export class Router {
   private trees: Map<HTTPMethod, RadixTree> = new Map();
   private routes: Array<{ method: HTTPMethod; path: string; config: RouteEntry }> = [];
   private prefix: string = '';
+  private enableRegexRoutes: boolean = false;
 
-  constructor(prefix: string = '') {
-    this.prefix = prefix;
+  constructor(options: RouterOptions | string = '') {
+    // Support legacy string prefix or new options object
+    if (typeof options === 'string') {
+      this.prefix = options;
+    } else {
+      this.prefix = options.prefix || '';
+      this.enableRegexRoutes = options.enableRegexRoutes || false;
+    }
+    
     // Initialize trees for each HTTP method
     const methods: HTTPMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
     for (const method of methods) {
-      this.trees.set(method, new RadixTree());
+      this.trees.set(method, new RadixTree(this.enableRegexRoutes));
     }
   }
 

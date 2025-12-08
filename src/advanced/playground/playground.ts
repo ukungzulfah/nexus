@@ -10,6 +10,38 @@ import { PlaygroundConfig, StoredRoute } from './types';
 
 
 /**
+ * Auto-detect file location from stack trace
+ * Extracts the caller file path by analyzing the Error stack
+ */
+function detectFileLocation(): string | undefined {
+  try {
+    const stack = new Error().stack;
+    if (!stack) return undefined;
+
+    const lines = stack.split('\n');
+    // Skip first 3 lines: Error, detectFileLocation, and the wrapper function
+    for (let i = 3; i < lines.length; i++) {
+      const line = lines[i];
+      // Match file paths in stack trace
+      const match = line.match(/\((.+?):(\d+):(\d+)\)/) || line.match(/at (.+?):(\d+):(\d+)/);
+      if (match) {
+        const filePath = match[1];
+        // Filter out node_modules and internal Node.js files
+        if (!filePath.includes('node_modules') && 
+            !filePath.includes('node:') && 
+            !filePath.includes('internal/') &&
+            (filePath.endsWith('.ts') || filePath.endsWith('.js'))) {
+          return filePath;
+        }
+      }
+    }
+  } catch (e) {
+    // Silently fail if detection fails
+  }
+  return undefined;
+}
+
+/**
  * API Playground Plugin
  * Provides an interactive API explorer with authentication and development-mode security
  * 
@@ -66,34 +98,57 @@ export function playground(config: PlaygroundConfig = {}): Plugin {
       const originalPatch = app.patch.bind(app);
 
       app.route = function (routeConfig: RouteConfig) {
+        const fileLocation = routeConfig.meta?.fileLocation || detectFileLocation();
         routes.push({
           method: routeConfig.method,
           path: routeConfig.path,
           schema: routeConfig.schema,
-          meta: routeConfig.meta
+          meta: {
+            ...routeConfig.meta,
+            fileLocation
+          }
         });
         return originalRoute(routeConfig);
       };
 
       const wrapMethod = (method: HTTPMethod, original: Function) => {
         return function (pathOrRoute: string | any, handlerOrConfig?: any) {
+          const fileLocation = detectFileLocation();
+          
           // Class-based routing
           if (typeof pathOrRoute === 'object' && 'pathName' in pathOrRoute) {
             const route = pathOrRoute;
+            const meta = route.meta?.() || {};
             routes.push({
               method,
               path: route.pathName,
               schema: route.schema?.(),
-              meta: route.meta?.()
+              meta: {
+                ...meta,
+                fileLocation: meta.fileLocation || fileLocation
+              }
             });
             return original(pathOrRoute);
           }
 
           const path = pathOrRoute;
           if (typeof handlerOrConfig !== 'function' && handlerOrConfig) {
-            routes.push({ method, path, schema: handlerOrConfig.schema, meta: handlerOrConfig.meta });
+            const meta = handlerOrConfig.meta || {};
+            routes.push({ 
+              method, 
+              path, 
+              schema: handlerOrConfig.schema, 
+              meta: {
+                ...meta,
+                fileLocation: meta.fileLocation || fileLocation
+              }
+            });
           } else {
-            routes.push({ method, path });
+            routes.push({ 
+              method, 
+              path,
+              meta: { fileLocation }
+            });
           }
           return original(path, handlerOrConfig);
         };
@@ -151,6 +206,17 @@ export function playground(config: PlaygroundConfig = {}): Plugin {
         };
       };
 
+      // CSP header for playground - allows inline styles and Monaco CDN
+      const playgroundCSP = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "font-src 'self' https://cdn.jsdelivr.net data:",
+        "img-src 'self' data: https:",
+        "connect-src 'self' *",
+        "worker-src 'self' blob:"
+      ].join('; ');
+
       originalGet(basePath, async (ctx: any) => {
         // Check authentication
         if (!authMiddleware(ctx)) {
@@ -165,7 +231,10 @@ export function playground(config: PlaygroundConfig = {}): Plugin {
         }
         return {
           statusCode: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          headers: { 
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Security-Policy': playgroundCSP
+          },
           body: generatePlaygroundHTML(resolvedConfig, detectedBaseUrl)
         };
       });
@@ -188,6 +257,7 @@ export function playground(config: PlaygroundConfig = {}): Plugin {
           deprecated: r.meta?.deprecated,
           responses: r.meta?.responses,
           example: r.meta?.example,
+          fileLocation: r.meta?.fileLocation,
           schema: {
             body: r.schema?.body ? zodToExample(r.schema.body) : null,
             query: r.schema?.query ? zodToParams(r.schema.query) : null,

@@ -467,6 +467,31 @@ export function generatePlaygroundHTML(config: PlaygroundConfig, baseUrl: string
             font-family: 'SF Mono', 'Fira Code', monospace;
             font-size: 13px;
             color: var(--text-primary);
+            flex: 1;
+        }
+
+        .info-method-path .curl-btn {
+            padding: 4px 10px;
+            background: var(--accent-color);
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+
+        .info-method-path .curl-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .info-method-path .curl-btn.copied {
+            background: var(--success-color);
         }
 
         .info-label-row {
@@ -515,39 +540,6 @@ export function generatePlaygroundHTML(config: PlaygroundConfig, baseUrl: string
             white-space: pre;
             margin: 0;
             line-height: 1.5;
-        }
-
-        .info-curl-section {
-            margin-bottom: 16px;
-        }
-
-        .info-curl-btn {
-            width: 100%;
-            padding: 10px 16px;
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .info-curl-btn:hover {
-            background: var(--accent-color);
-            border-color: var(--accent-color);
-            color: #fff;
-        }
-
-        .info-curl-btn.copied {
-            background: var(--success-color);
-            border-color: var(--success-color);
-            color: #fff;
         }
 
         /* Resizer */
@@ -1433,14 +1425,22 @@ export function generatePlaygroundHTML(config: PlaygroundConfig, baseUrl: string
             html += '<div class="info-method-path">';
             html += '<span class="method-badge ' + ep.method.toLowerCase() + '">' + ep.method + '</span>';
             html += '<span class="path">' + ep.path + '</span>';
-            html += '</div>';
-
-            // Copy as CURL button
-            html += '<div class="info-curl-section">';
-            html += '<button class="info-curl-btn" onclick="copyAsCurl()" id="curlCopyBtn">';
+            html += '<button class="curl-btn" onclick="copyAsCurl()" id="curlCopyBtn">';
             html += '<span>📋</span> Copy as CURL';
             html += '</button>';
             html += '</div>';
+
+            // File Location
+            if (ep.fileLocation) {
+                html += '<div class="info-section">';
+                html += '<div class="info-label">File Location</div>';
+                html += '<div class="info-value" style="font-family: monospace; font-size: 11px; color: var(--text-secondary); word-break: break-all;">';
+                html += '<span style="color: var(--accent-color);">📂</span> ' + escapeHtml(ep.fileLocation);
+                html += '</div>';
+                html += '</div>';
+            }
+
+            // Remove the separate Copy as CURL button section
 
             // Deprecated warning
             if (ep.deprecated) {

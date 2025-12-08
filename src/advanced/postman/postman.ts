@@ -102,8 +102,11 @@ export function postman(config: PostmanConfig = {}): Plugin {
         return {
           statusCode: 200,
           headers: {
-            'Content-Type': 'application/json',
-            'Content-Disposition': `attachment; filename="${filename}"`
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
           },
           body: JSON.stringify(collection, null, 2)
         };
@@ -125,8 +128,11 @@ export function postman(config: PostmanConfig = {}): Plugin {
         return {
           statusCode: 200,
           headers: {
-            'Content-Type': 'application/json',
-            'Content-Disposition': `attachment; filename="${filename}"`
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
           },
           body: JSON.stringify(environment, null, 2)
         };

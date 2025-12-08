@@ -57,9 +57,12 @@ export function securityHeaders(
         // Execute handler
         const response = await next(ctx);
 
-        // Apply headers to response
+        // Apply headers to response (don't override if already set)
         for (const [name, value] of Object.entries(headers)) {
-            response.headers[name] = value;
+            // Skip if response already has this header (e.g., playground sets its own CSP)
+            if (!response.headers[name]) {
+                response.headers[name] = value;
+            }
         }
 
         return response;

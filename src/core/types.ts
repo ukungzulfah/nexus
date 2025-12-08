@@ -10,6 +10,39 @@ import { ContextStore, StoreConstructor, StoreRegistry, RequestStore, RequestSto
 import { JSONSchema, ResponseSchemaConfig, SerializerFunction } from './serializer';
 
 /**
+ * Template engine interface for render() method
+ */
+export interface TemplateEngine {
+    /** Engine name (e.g., 'handlebars', 'ejs', 'pug') */
+    name: string;
+    
+    /** File extensions this engine handles (e.g., ['.hbs', '.handlebars']) */
+    extensions: string[];
+    
+    /** 
+     * Compile and render template with data
+     * @param template - Template string content
+     * @param data - Data to inject
+     * @returns Rendered string
+     */
+    render(template: string, data: Record<string, any>): string | Promise<string>;
+}
+
+/**
+ * Options for render() method
+ */
+export interface RenderOptions {
+    /** Template engine to use (default: auto-detect from extension or 'simple') */
+    engine?: string;
+    
+    /** Status code for response (default: 200) */
+    status?: number;
+    
+    /** Additional headers */
+    headers?: Record<string, string>;
+}
+
+/**
  * HTTP methods supported by the framework
  */
 export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
@@ -272,6 +305,7 @@ export interface RouteMeta {
     deprecated?: boolean;
     summary?: string;
     example?: string;
+    fileLocation?: string;
 }
 
 /**
@@ -316,12 +350,26 @@ export interface AppConfig {
     contextPoolSize?: number;
     enableJIT?: boolean;
 
+    // Router options
+    /** Enable regex patterns in route params, e.g. /users/:id(\\d+) */
+    enableRegexRoutes?: boolean;
+
     // Error handling
     onError?: ErrorHandler;
 
     // Development options
     debug?: boolean;
     logRequests?: boolean;
+    
+    // Template engines (built-in, lazy-loaded)
+    /** Enable Handlebars template engine (zero overhead if not used) */
+    handlebars?: boolean;
+    /** Enable EJS template engine (zero overhead if not used) */
+    ejs?: boolean;
+    /** Enable Pug template engine (zero overhead if not used) */
+    pug?: boolean;
+    /** Enable Mustache template engine (zero overhead if not used) */
+    mustache?: boolean;
 }
 
 /**
@@ -431,6 +479,46 @@ export abstract class Route<TContext = Context, TDeps = any> {
     pathName?: string;
     
     /** 
+     * Template engines registry (static, shared across all routes)
+     * @private
+     */
+    private static templateEngines: Map<string, TemplateEngine> = new Map();
+    
+    /**
+     * Register a custom template engine
+     * @param engine - Template engine implementation
+     * 
+     * @example
+     * ```typescript
+     * import Handlebars from 'handlebars';
+     * 
+     * Route.registerEngine({
+     *   name: 'handlebars',
+     *   extensions: ['.hbs', '.handlebars'],
+     *   render: (template, data) => {
+     *     const compiled = Handlebars.compile(template);
+     *     return compiled(data);
+     *   }
+     * });
+     * ```
+     */
+    static registerEngine(engine: TemplateEngine): void {
+        Route.templateEngines.set(engine.name, engine);
+        // Also register by file extensions for auto-detection
+        for (const ext of engine.extensions) {
+            Route.templateEngines.set(ext, engine);
+        }
+    }
+    
+    /**
+     * Get registered template engine by name or extension
+     * @private
+     */
+    private static getEngine(nameOrExt: string): TemplateEngine | undefined {
+        return Route.templateEngines.get(nameOrExt);
+    }
+    
+    /** 
      * The main route handler - REQUIRED!
      * TypeScript will enforce this is implemented.
      * @param ctx - Request context
@@ -478,6 +566,142 @@ export abstract class Route<TContext = Context, TDeps = any> {
         return (ctx as Context).response
             .status(status)
             .json({ success: false, message, ...(data !== undefined ? { data } : {}) });
+    }
+    
+    /**
+     * Render a file template with data injection
+     * Supports multiple template engines via plugins or simple placeholder syntax by default
+     * @param filePath - Path to the template file (relative to project root or absolute)
+     * @param data - Data object to inject into template
+     * @param options - Render options (engine, status, headers)
+     * @returns Response object with rendered HTML/text
+     * 
+     * @example
+     * ```typescript
+     * // Simple placeholder (default): {{ variableName }}
+     * return this.render('./views/welcome.html', { name: 'John' });
+     * 
+     * // With Handlebars (auto-detect from .hbs extension)
+     * return this.render('./views/profile.hbs', { user });
+     * 
+     * // Force specific engine
+     * return this.render('./views/page.html', { data }, { engine: 'ejs' });
+     * 
+     * // With custom status and headers
+     * return this.render('./views/error.html', { message }, { 
+     *   status: 500,
+     *   headers: { 'X-Custom': 'value' }
+     * });
+     * ```
+     */
+    protected async render(
+        filePath: string, 
+        data?: Record<string, any>,
+        options?: RenderOptions
+    ): Promise<Response> {
+        const fs = await import('fs');
+        const path = await import('path');
+        
+        // Resolve file path (support both relative and absolute paths)
+        const resolvedPath = path.isAbsolute(filePath) 
+            ? filePath 
+            : path.resolve(process.cwd(), filePath);
+        
+        // Check if file exists
+        if (!fs.existsSync(resolvedPath)) {
+            throw new Error(`Template file not found: ${filePath}`);
+        }
+        
+        // Read file content
+        let content = fs.readFileSync(resolvedPath, 'utf-8');
+        
+        // Determine which engine to use
+        const ext = path.extname(filePath).toLowerCase();
+        let engine: TemplateEngine | undefined;
+        
+        if (options?.engine) {
+            // Explicit engine specified
+            engine = Route.getEngine(options.engine);
+            if (!engine) {
+                throw new Error(
+                    `Template engine '${options.engine}' not registered. ` +
+                    `Register it using Route.registerEngine()`
+                );
+            }
+        } else {
+            // Auto-detect from file extension
+            engine = Route.getEngine(ext);
+        }
+        
+        // Render with appropriate engine
+        if (engine) {
+            // Use registered template engine
+            content = await engine.render(content, data || {});
+        } else if (data && Object.keys(data).length > 0) {
+            // Fallback to simple placeholder engine (default)
+            content = this.injectTemplateData(content, data);
+        }
+        
+        // Determine content type from file extension
+        const contentType = this.getContentTypeFromExtension(ext);
+        
+        // Build response headers
+        const headers: Record<string, string> = {
+            'Content-Type': contentType,
+            ...(options?.headers || {})
+        };
+        
+        return {
+            statusCode: options?.status || 200,
+            headers,
+            body: content
+        };
+    }
+    
+    /**
+     * Inject data into template string
+     * Supports {{ variable }} and {{ object.property }} syntax
+     * Automatically JSON.stringify() objects and arrays for use in JavaScript
+     * @private
+     */
+    private injectTemplateData(template: string, data: Record<string, any>): string {
+        return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, key) => {
+            // Support nested properties: user.name, user.email, etc.
+            const value = key.split('.').reduce((obj: any, prop: string) => {
+                return obj && obj[prop] !== undefined ? obj[prop] : '';
+            }, data);
+            
+            if (value === undefined || value === null) {
+                return '';
+            }
+            
+            // If value is object or array, JSON.stringify it for JavaScript usage
+            if (typeof value === 'object') {
+                return JSON.stringify(value);
+            }
+            
+            // Primitive values: convert to string
+            return String(value);
+        });
+    }
+    
+    /**
+     * Get content type from file extension
+     * @private
+     */
+    private getContentTypeFromExtension(ext: string): string {
+        const mimeTypes: Record<string, string> = {
+            '.html': 'text/html; charset=utf-8',
+            '.htm': 'text/html; charset=utf-8',
+            '.xml': 'application/xml; charset=utf-8',
+            '.txt': 'text/plain; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.js': 'application/javascript; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.svg': 'image/svg+xml',
+        };
+        
+        return mimeTypes[ext] || 'text/plain; charset=utf-8';
     }
     
     /** 

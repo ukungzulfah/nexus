@@ -542,7 +542,10 @@ export class FileRouter {
                 handler: finalHandler,
                 middlewares: allMiddlewares,
                 schema: route.schema?.(),
-                meta: route.meta?.(),
+                meta: {
+                    ...route.meta?.(),
+                    fileLocation: route.meta?.()?.fileLocation || filePath
+                },
                 filePath
             });
             
