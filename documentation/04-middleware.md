@@ -75,7 +75,7 @@ app.use(logger());
 Handle Cross-Origin Resource Sharing. **PENTING: CORS middleware HARUS diletakkan PALING PERTAMA di middleware chain!**
 
 **Opsi konfigurasi:**
-- `origin`: String origin tunggal, array origins, atau function untuk validasi dinamis. **⚠️ JANGAN gunakan wildcard `*` jika `credentials: true`**
+- `origin`: String origin tunggal, array origins, atau function untuk validasi dinamis. **⚠️ JANGAN gunakan wildcard `*` jika `credentials: true` di production**
 - `methods`: Array HTTP methods yang diizinkan
 - `credentials`: Izinkan credentials (cookies, auth headers) - hanya bekerja dengan origin spesifik
 - `maxAge`: Cache preflight request (detik)
@@ -114,6 +114,16 @@ app.use(cors({
 }));
 ```
 
+**⚠️ Development Fallback - Auto-reflect origin (tidak recommended untuk production):**
+```typescript
+// Ini akan auto-reflect request origin jika keduanya set
+// Berguna untuk development, tapi TIDAK aman untuk production
+app.use(cors({
+  origin: ['*'],        // atau origin: '*'
+  credentials: true     // Middleware akan auto-reflect request origin
+}));
+```
+
 Default options:
 ```typescript
 {
@@ -125,13 +135,10 @@ Default options:
 }
 ```
 
-**❌ JANGAN LAKUKAN - Browser akan menolak!:**
-```typescript
-app.use(cors({
-  origin: ['*'],  // atau origin: '*'
-  credentials: true  // ❌ Tidak bisa combine wildcard dengan credentials
-}));
-```
+**📝 Catatan:**
+- Kombinasi `origin: ['*']` + `credentials: true` akan trigger **auto-reflect mode** untuk development
+- Middleware akan log warning di console
+- Untuk production, **selalu gunakan spesifik origins** dengan `credentials: true`
 
 ## Custom Middleware
 

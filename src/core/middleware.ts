@@ -250,15 +250,21 @@ export function cors(options: {
         }
     };
 
-    return async (ctx, next, _deps) => {
-        const requestOrigin = ctx.headers.origin || ctx.headers.referer;
-        let allowOrigin = getOrigin(requestOrigin as string | undefined);
+    // Check if user tried to combine wildcard with credentials
+    const hasWildcard = (Array.isArray(origin) && origin.includes('*')) || origin === '*';
+    const shouldReflectOrigin = credentials && hasWildcard;
 
-        // If credentials is true and origin is wildcard, it won't work
-        // Browser will reject the request
-        if (credentials && allowOrigin === '*') {
-            console.warn('CORS: credentials=true cannot be used with origin="*". Set specific origins.');
-            allowOrigin = '';
+    if (shouldReflectOrigin) {
+        console.warn('CORS: Wildcard origin with credentials detected. Will auto-reflect request origin for compatibility.');
+    }
+
+    return async (ctx, next, _deps) => {
+        const requestOrigin = (ctx.headers.origin || ctx.headers.referer) as string | undefined;
+        let allowOrigin = getOrigin(requestOrigin);
+
+        // Auto-reflect origin if credentials + wildcard (fallback for development)
+        if (shouldReflectOrigin && requestOrigin) {
+            allowOrigin = requestOrigin;
         }
 
         // Set CORS headers BEFORE calling next
