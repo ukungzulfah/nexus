@@ -72,16 +72,45 @@ app.use(logger());
 
 ### CORS
 
-Handle Cross-Origin Resource Sharing:
+Handle Cross-Origin Resource Sharing. **PENTING: CORS middleware HARUS diletakkan PALING PERTAMA di middleware chain!**
 
+**Opsi konfigurasi:**
+- `origin`: String origin tunggal, array origins, atau function untuk validasi dinamis. **⚠️ JANGAN gunakan wildcard `*` jika `credentials: true`**
+- `methods`: Array HTTP methods yang diizinkan
+- `credentials`: Izinkan credentials (cookies, auth headers) - hanya bekerja dengan origin spesifik
+- `maxAge`: Cache preflight request (detik)
+- `allowedHeaders`: Custom headers yang diizinkan
+
+**✅ Contoh - Wildcard (tanpa credentials):**
 ```typescript
 import { cors } from './nexus';
 
 app.use(cors({
-  origin: 'https://example.com',
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: false
+}));
+```
+
+**✅ Contoh - Dengan credentials (HARUS spesifik origins):**
+```typescript
+app.use(cors({
+  origin: ['https://example.com', 'https://app.example.com'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
   maxAge: 86400
+}));
+```
+
+**✅ Contoh - Dynamic origin validation:**
+```typescript
+app.use(cors({
+  origin: (requestOrigin) => {
+    const allowed = ['https://example.com', 'https://staging.example.com'];
+    return allowed.includes(requestOrigin);
+  },
+  credentials: true
 }));
 ```
 
@@ -91,8 +120,17 @@ Default options:
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: false,
-  maxAge: 86400
+  maxAge: 86400,
+  allowedHeaders: ['Content-Type', 'Authorization']
 }
+```
+
+**❌ JANGAN LAKUKAN - Browser akan menolak!:**
+```typescript
+app.use(cors({
+  origin: ['*'],  // atau origin: '*'
+  credentials: true  // ❌ Tidak bisa combine wildcard dengan credentials
+}));
 ```
 
 ## Custom Middleware

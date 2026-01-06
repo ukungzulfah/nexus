@@ -220,38 +220,71 @@ export function logger(): Middleware {
 
 /**
  * CORS middleware
+ * Must be placed FIRST in middleware chain to handle preflight requests
  */
 export function cors(options: {
-    origin?: string | string[];
+    origin?: string | string[] | ((origin: string) => boolean);
     methods?: string[];
     credentials?: boolean;
     maxAge?: number;
+    allowedHeaders?: string[];
 } = {}): Middleware {
     const {
         origin = '*',
         methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         credentials = false,
-        maxAge = 86400
+        maxAge = 86400,
+        allowedHeaders = ['Content-Type', 'Authorization']
     } = options;
 
     return async (ctx, next, _deps) => {
-        const response = await next(ctx);
+        // Determine allowed origin
+        let allowOrigin = '*';
+        const requestOrigin = ctx.headers.origin || ctx.headers.referer;
 
-        // Set CORS headers
-        response.headers['Access-Control-Allow-Origin'] = Array.isArray(origin) ? origin.join(',') : origin;
-        response.headers['Access-Control-Allow-Methods'] = methods.join(',');
-        response.headers['Access-Control-Max-Age'] = maxAge.toString();
-
-        if (credentials) {
-            response.headers['Access-Control-Allow-Credentials'] = 'true';
+        if (typeof origin === 'function') {
+            allowOrigin = origin(requestOrigin || '') ? (requestOrigin || '*') : '';
+        } else if (Array.isArray(origin)) {
+            allowOrigin = origin.includes('*') ? '*' : (origin.includes(requestOrigin) ? requestOrigin : '');
+        } else {
+            allowOrigin = origin;
         }
 
-        // Handle preflight
+        // If credentials is true and origin is wildcard, it won't work
+        // Browser will reject the request
+        if (credentials && allowOrigin === '*') {
+            console.warn('CORS: credentials=true cannot be used with origin="*". Set specific origins.');
+            allowOrigin = '';
+        }
+
+        // Set CORS headers BEFORE calling next
+        const setCorsHeaders = (headers: any) => {
+            if (allowOrigin) {
+                headers['Access-Control-Allow-Origin'] = allowOrigin;
+            }
+            headers['Access-Control-Allow-Methods'] = methods.join(', ');
+            headers['Access-Control-Allow-Headers'] = allowedHeaders.join(', ');
+            headers['Access-Control-Max-Age'] = maxAge.toString();
+
+            if (credentials) {
+                headers['Access-Control-Allow-Credentials'] = 'true';
+            }
+        };
+
+        // Handle preflight OPTIONS request
         if (ctx.method === 'OPTIONS') {
-            response.statusCode = 204;
-            response.body = '';
+            const response = {
+                statusCode: 204,
+                body: '',
+                headers: {} as any
+            };
+            setCorsHeaders(response.headers);
+            return response;
         }
 
+        // Call next and add CORS headers to response
+        const response = await next(ctx);
+        setCorsHeaders(response.headers);
         return response;
     };
 }
