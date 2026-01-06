@@ -237,18 +237,22 @@ export function cors(options: {
         allowedHeaders = ['Content-Type', 'Authorization']
     } = options;
 
-    return async (ctx, next, _deps) => {
-        // Determine allowed origin
-        let allowOrigin = '*';
-        const requestOrigin = ctx.headers.origin || ctx.headers.referer;
-
+    // Determine origin type and create validator
+    const getOrigin = (requestOrigin: string | undefined): string => {
+        const originValue = requestOrigin || '';
+        
         if (typeof origin === 'function') {
-            allowOrigin = origin(requestOrigin || '') ? (requestOrigin || '*') : '';
+            return origin(originValue) ? originValue : '';
         } else if (Array.isArray(origin)) {
-            allowOrigin = origin.includes('*') ? '*' : (origin.includes(requestOrigin) ? requestOrigin : '');
+            return origin.includes('*') ? '*' : (origin.includes(originValue) ? originValue : '');
         } else {
-            allowOrigin = origin;
+            return origin;
         }
+    };
+
+    return async (ctx, next, _deps) => {
+        const requestOrigin = ctx.headers.origin || ctx.headers.referer;
+        let allowOrigin = getOrigin(requestOrigin as string | undefined);
 
         // If credentials is true and origin is wildcard, it won't work
         // Browser will reject the request
